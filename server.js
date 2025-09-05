@@ -1,5 +1,5 @@
 /**
- * Human-in-the-Loop Chat — с регистрацией и Cloudinary
+ * Human-in-the-Loop Chat — с регистрацией, Cloudinary и автологином
  * ---------------------------------------------------
  * npm install express cookie-parser nanoid bcrypt cloudinary multer multer-storage-cloudinary
  *
@@ -170,7 +170,7 @@ app.post('/operator/reply', (req, res) => {
 function userPage() {
   return `<!doctype html><html><head><meta charset=utf-8><script src="https://cdn.tailwindcss.com"></script></head>
   <body class="bg-gray-900 text-white flex items-center justify-center h-screen">
-  <div id="auth" class="w-full max-w-sm p-4 bg-gray-800 rounded-xl">
+  <div id="auth" class="w-full max-w-sm p-4 bg-gray-800 rounded-xl hidden">
     <h1 class="text-xl mb-2">Вход</h1>
     <input id="username" placeholder="Имя" class="w-full mb-2 p-2 rounded bg-gray-700"/>
     <input id="password" type="password" placeholder="Пароль" class="w-full mb-2 p-2 rounded bg-gray-700"/>
@@ -182,7 +182,7 @@ function userPage() {
     <div class="flex p-3 border-t border-gray-700 items-center">
       <input id="input" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white outline-none" placeholder="Сообщение...">
       <input type="file" id="file" class="ml-2 text-sm text-gray-300">
-      <button id="sendBtn" class="ml-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl">Отправить</button>
+      <button id="sendBtn" class="ml-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-white font-semibold">Отправить</button>
     </div>
   </div>
   <script>
@@ -192,20 +192,20 @@ function userPage() {
   }
   async function login() {
     const r = await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});
-    if(r.ok) {
-      document.getElementById('auth').classList.add('hidden');
-      document.getElementById('chat').classList.remove('hidden');
-      loadHistory(); connectEvents();
-    } else { alert("Ошибка входа"); }
+    if(r.ok) { showChat(); } else { alert("Ошибка входа"); }
   }
-  async function loadHistory() {
-    const r = await fetch('/api/history'); const d = await r.json();
-    d.messages.forEach(addMsg);
+  async function checkAuth() {
+    const r = await fetch('/me'); const d = await r.json();
+    if (d.ok) { showChat(); } else { showAuth(); }
   }
+  function showChat(){document.getElementById('auth').classList.add('hidden');document.getElementById('chat').classList.remove('hidden');loadHistory();connectEvents();}
+  function showAuth(){document.getElementById('auth').classList.remove('hidden');document.getElementById('chat').classList.add('hidden');}
+  async function loadHistory(){const r=await fetch('/api/history');const d=await r.json();d.messages.forEach(addMsg);}
   function addMsg(m){const e=document.createElement('div');if(m.text){e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;}else if(m.fileUrl){if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)){e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px] rounded"/>';}else{e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank" class="underline">Файл</a>';}}messages.appendChild(e);messages.scrollTop=messages.scrollHeight;}
   function connectEvents(){const es=new EventSource('/events');es.addEventListener('message',ev=>{addMsg(JSON.parse(ev.data))});}
   const sendBtn=document.getElementById('sendBtn');sendBtn.onclick=async()=>{let fileInput=document.getElementById('file');if(fileInput.files.length>0){const fd=new FormData();fd.append('file',fileInput.files[0]);const r=await fetch('/upload',{method:'POST',body:fd});const d=await r.json();await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileUrl:d.url})});fileInput.value='';}else{const text=input.value.trim();if(!text)return;input.value='';await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});}};
   input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();sendBtn.click();}});
+  checkAuth();
   </script></body></html>`;
 }
 
@@ -225,7 +225,7 @@ function operatorPage() {
   <script>
   const l=document.getElementById('list'),t=document.getElementById('thread'),r=document.getElementById('reply'),s=document.getElementById('send');const token=new URLSearchParams(location.search).get('token');let current=null;
   function addMsg(m){const e=document.createElement('div');if(m.text){e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;}else if(m.fileUrl){if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)){e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px] rounded"/>';}else{e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank" class="underline">Файл</a>';}}t.appendChild(e);t.scrollTop=t.scrollHeight;}
-  function openChat(id){current=id;t.innerHTML='';fetch('/api/history').then(r=>r.json()).then(d=>{d.messages.forEach(addMsg)});} // simplified
+  function openChat(id){current=id;t.innerHTML='';fetch('/api/history').then(r=>r.json()).then(d=>{d.messages.forEach(addMsg)});} 
   s.onclick=()=>{if(!current)return;const text=r.value.trim();if(!text)return;fetch('/operator/reply?token='+token,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:current,text})});r.value='';};
   const es=new EventSource('/operator/events?token='+token);es.addEventListener('snapshot',ev=>{const{list}=JSON.parse(ev.data);l.innerHTML='';list.forEach(c=>{const d=document.createElement('div');d.className='p-2 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600';d.textContent=c.id+' ('+c.count+')';d.onclick=()=>openChat(c.id);l.appendChild(d)})});
   </script></body></html>`;
