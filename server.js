@@ -131,9 +131,23 @@ app.post('/api/message', (req, res) => {
   res.json({ ok: true });
 });
 
+// ИСПРАВЛЕНО: Добавлена поддержка запроса истории для конкретного пользователя (для админа)
 app.get('/api/history', (req, res) => {
   const userId = req.cookies.userId;
-  if (!userId || !chats.has(userId)) return res.json({ ok: true, messages: [] });
+  const requestedUserId = req.query.userId; // Для админа
+  
+  // Если админ запрашивает историю конкретного пользователя
+  if (requestedUserId) {
+    if (!chats.has(requestedUserId)) {
+      return res.json({ ok: true, messages: [] });
+    }
+    return res.json({ ok: true, messages: chats.get(requestedUserId).messages });
+  }
+  
+  // Обычный запрос от пользователя
+  if (!userId || !chats.has(userId)) {
+    return res.json({ ok: true, messages: [] });
+  }
   res.json({ ok: true, messages: chats.get(userId).messages });
 });
 
@@ -179,10 +193,13 @@ function userPage() {
   </div>
   <div id="chat" class="hidden w-full max-w-md flex flex-col h-[90vh] bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
     <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
-    <div class="flex p-3 border-t border-gray-700 items-center">
-      <input id="input" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white outline-none" placeholder="Сообщение...">
-      <input type="file" id="file" class="ml-2 text-sm text-gray-300">
-      <button id="sendBtn" class="ml-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-white font-semibold">Отправить</button>
+    <div class="p-3 border-t border-gray-700 space-y-2">
+      <div class="flex items-center gap-2">
+        <input id="input" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white outline-none" placeholder="Сообщение...">
+        <input type="file" id="file" class="hidden">
+        <button onclick="document.getElementById('file').click()" class="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-xl text-white">📎</button>
+      </div>
+      <button id="sendBtn" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-white font-semibold">Отправить</button>
     </div>
   </div>
   <script>
@@ -225,9 +242,15 @@ function operatorPage() {
   <script>
   const l=document.getElementById('list'),t=document.getElementById('thread'),r=document.getElementById('reply'),s=document.getElementById('send');const token=new URLSearchParams(location.search).get('token');let current=null;
   function addMsg(m){const e=document.createElement('div');if(m.text){e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;}else if(m.fileUrl){if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)){e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px] rounded"/>';}else{e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank" class="underline">Файл</a>';}}t.appendChild(e);t.scrollTop=t.scrollHeight;}
-  function openChat(id){current=id;t.innerHTML='';fetch('/api/history').then(r=>r.json()).then(d=>{d.messages.forEach(addMsg)});} 
+  // ИСПРАВЛЕНО: Теперь передаем userId в запрос истории
+  function openChat(id){current=id;t.innerHTML='';fetch('/api/history?userId=' + id).then(r=>r.json()).then(d=>{d.messages.forEach(addMsg)});} 
   s.onclick=()=>{if(!current)return;const text=r.value.trim();if(!text)return;fetch('/operator/reply?token='+token,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:current,text})});r.value='';};
-  const es=new EventSource('/operator/events?token='+token);es.addEventListener('snapshot',ev=>{const{list}=JSON.parse(ev.data);l.innerHTML='';list.forEach(c=>{const d=document.createElement('div');d.className='p-2 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600';d.textContent=c.id+' ('+c.count+')';d.onclick=()=>openChat(c.id);l.appendChild(d)})});
+  // ИСПРАВЛЕНО: Добавляем обработку новых сообщений от пользователей в реальном времени
+  const es=new EventSource('/operator/events?token='+token);
+  es.addEventListener('snapshot',ev=>{const{list}=JSON.parse(ev.data);l.innerHTML='';list.forEach(c=>{const d=document.createElement('div');d.className='p-2 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600';d.textContent=c.id+' ('+c.count+')';d.onclick=()=>openChat(c.id);l.appendChild(d)})});
+  // ИСПРАВЛЕНО: Добавляем обработку новых сообщений в реальном времени
+  es.addEventListener('new_user_message',ev=>{const data=JSON.parse(ev.data);if(data.userId===current){openChat(current);}}); // Перезагружаем чат если это текущий пользователь
+  es.addEventListener('assistant_message',ev=>{const data=JSON.parse(ev.data);if(data.userId===current){openChat(current);}}); // Показываем наш ответ
   </script></body></html>`;
 }
 
