@@ -179,10 +179,10 @@ function userPage() {
   </div>
   <div id="chat" class="hidden w-full max-w-md flex flex-col h-[90vh] bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
     <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
-    <div class="flex p-3 border-t border-gray-700">
+    <div class="flex p-3 border-t border-gray-700 items-center">
       <input id="input" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white outline-none" placeholder="Сообщение...">
-      <input type="file" id="file" class="ml-2">
-      <button id="send" class="ml-2 px-4 py-2 bg-indigo-600 rounded-xl">➤</button>
+      <input type="file" id="file" class="ml-2 text-sm text-gray-300">
+      <button id="sendBtn" class="ml-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl">Отправить</button>
     </div>
   </div>
   <script>
@@ -196,37 +196,16 @@ function userPage() {
       document.getElementById('auth').classList.add('hidden');
       document.getElementById('chat').classList.remove('hidden');
       loadHistory(); connectEvents();
-    }
+    } else { alert("Ошибка входа"); }
   }
   async function loadHistory() {
     const r = await fetch('/api/history'); const d = await r.json();
     d.messages.forEach(addMsg);
   }
-  function addMsg(m){
-    const e=document.createElement('div');
-    if(m.text) e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;
-    else if(m.fileUrl) {
-      if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)) e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px]"/>';
-      else e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank">Файл</a>';
-    }
-    messages.appendChild(e);
-  }
-  function connectEvents(){
-    const es=new EventSource('/events');
-    es.addEventListener('message',ev=>{addMsg(JSON.parse(ev.data))});
-  }
-  send.onclick=async()=>{
-    let fileInput=document.getElementById('file');
-    if(fileInput.files.length>0){
-      const fd=new FormData(); fd.append('file',fileInput.files[0]);
-      const r=await fetch('/upload',{method:'POST',body:fd}); const d=await r.json();
-      await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileUrl:d.url})});
-      fileInput.value='';
-    } else {
-      const text=input.value; input.value='';
-      await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
-    }
-  };
+  function addMsg(m){const e=document.createElement('div');if(m.text){e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;}else if(m.fileUrl){if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)){e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px] rounded"/>';}else{e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank" class="underline">Файл</a>';}}messages.appendChild(e);messages.scrollTop=messages.scrollHeight;}
+  function connectEvents(){const es=new EventSource('/events');es.addEventListener('message',ev=>{addMsg(JSON.parse(ev.data))});}
+  const sendBtn=document.getElementById('sendBtn');sendBtn.onclick=async()=>{let fileInput=document.getElementById('file');if(fileInput.files.length>0){const fd=new FormData();fd.append('file',fileInput.files[0]);const r=await fetch('/upload',{method:'POST',body:fd});const d=await r.json();await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileUrl:d.url})});fileInput.value='';}else{const text=input.value.trim();if(!text)return;input.value='';await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});}};
+  input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();sendBtn.click();}});
   </script></body></html>`;
 }
 
@@ -239,28 +218,16 @@ function operatorPage() {
       <div id="thread" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
       <div class="flex p-3 border-t border-gray-700">
         <input id="reply" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white" placeholder="Ответ...">
-        <button id="send" class="ml-2 px-4 py-2 bg-indigo-600 rounded-xl">Ответить</button>
+        <button id="send" class="ml-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl">Ответить</button>
       </div>
     </div>
   </div>
   <script>
-  const token=new URLSearchParams(location.search).get('token');let current=null;
-  function addMsg(m){
-    const e=document.createElement('div');
-    if(m.text) e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;
-    else if(m.fileUrl){
-      if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)) e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px]"/>';
-      else e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank">Файл</a>';
-    }
-    thread.appendChild(e);
-  }
-  function openChat(id){
-    current=id;thread.innerHTML='';
-    fetch('/api/history',{headers:{cookie:'userId='+id}}) // simple hack
-  }
-  send.onclick=()=>{if(!current)return;fetch('/operator/reply?token='+token,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:current,text:reply.value})});reply.value='';};
-  const es=new EventSource('/operator/events?token='+token);
-  es.addEventListener('snapshot',ev=>{const{list}=JSON.parse(ev.data);listEl.innerHTML='';list.forEach(c=>{const d=document.createElement('div');d.textContent=c.id+' ('+c.count+')';list.appendChild(d)})});
+  const l=document.getElementById('list'),t=document.getElementById('thread'),r=document.getElementById('reply'),s=document.getElementById('send');const token=new URLSearchParams(location.search).get('token');let current=null;
+  function addMsg(m){const e=document.createElement('div');if(m.text){e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;}else if(m.fileUrl){if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)){e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px] rounded"/>';}else{e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank" class="underline">Файл</a>';}}t.appendChild(e);t.scrollTop=t.scrollHeight;}
+  function openChat(id){current=id;t.innerHTML='';fetch('/api/history').then(r=>r.json()).then(d=>{d.messages.forEach(addMsg)});} // simplified
+  s.onclick=()=>{if(!current)return;const text=r.value.trim();if(!text)return;fetch('/operator/reply?token='+token,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:current,text})});r.value='';};
+  const es=new EventSource('/operator/events?token='+token);es.addEventListener('snapshot',ev=>{const{list}=JSON.parse(ev.data);l.innerHTML='';list.forEach(c=>{const d=document.createElement('div');d.className='p-2 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600';d.textContent=c.id+' ('+c.count+')';d.onclick=()=>openChat(c.id);l.appendChild(d)})});
   </script></body></html>`;
 }
 
