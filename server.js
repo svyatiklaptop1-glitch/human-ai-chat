@@ -221,46 +221,18 @@ function userPage() {
   let typingIndicator = null;
   function addMsg(m) {
     const e = document.createElement('div');
-    e.className = `p-3 rounded-2xl max-w-[80%] ${m.role === 'user' ? 'message-user ml-auto text-white' : 'message-bot mr-auto text-white'}`;
+    e.className = 'p-3 rounded-2xl max-w-[80%] ' + (m.role === 'user' ? 'message-user ml-auto text-white' : 'message-bot mr-auto text-white');
     
     if (m.text) {
       const avatar = document.createElement('div');
       avatar.className = 'flex items-start space-x-3';
-      avatar.innerHTML = `
-        <div class="w-8 h-8 rounded-full ${m.role === 'user' ? 'bg-white/20' : 'bg-gray-600'} flex items-center justify-center flex-shrink-0">
-          <span>${m.role === 'user' ? '👤' : '🤖'}</span>
-        </div>
-        <div class="flex-1">
-          <p class="text-sm">${m.text}</p>
-          <span class="text-xs opacity-60">${new Date(m.at).toLocaleTimeString()}</span>
-        </div>
-      `;
+      avatar.innerHTML = '<div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div class="flex-1"><p class="text-sm">' + m.text + '</p><span class="text-xs opacity-60">' + new Date(m.at).toLocaleTimeString() + '</span></div>';
       e.appendChild(avatar);
     } else if (m.fileUrl) {
-      if (m.fileUrl.match(/\.(jpg|jpeg|png|gif)$/)) {
-        e.innerHTML = `
-          <div class="flex items-start space-x-3">
-            <div class="w-8 h-8 rounded-full ${m.role === 'user' ? 'bg-white/20' : 'bg-gray-600'} flex items-center justify-center flex-shrink-0">
-              <span>${m.role === 'user' ? '👤' : '🤖'}</span>
-            </div>
-            <div>
-              <img src="${m.fileUrl}" class="max-w-[200px] rounded-xl shadow-lg"/>
-              <span class="text-xs opacity-60 block mt-1">${new Date(m.at).toLocaleTimeString()}</span>
-            </div>
-          </div>
-        `;
+      if (m.fileUrl.match(/\\.(jpg|jpeg|png|gif)$/)) {
+        e.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div><img src="' + m.fileUrl + '" class="max-w-[200px] rounded-xl shadow-lg"/><span class="text-xs opacity-60 block mt-1">' + new Date(m.at).toLocaleTimeString() + '</span></div></div>';
       } else {
-        e.innerHTML = `
-          <div class="flex items-start space-x-3">
-            <div class="w-8 h-8 rounded-full ${m.role === 'user' ? 'bg-white/20' : 'bg-gray-600'} flex items-center justify-center flex-shrink-0">
-              <span>${m.role === 'user' ? '👤' : '🤖'}</span>
-            </div>
-            <div>
-              <a href="${m.fileUrl}" target="_blank" class="text-blue-400 underline hover:text-blue-300 transition">📎 Файл</a>
-              <span class="text-xs opacity-60 block mt-1">${new Date(m.at).toLocaleTimeString()}</span>
-            </div>
-          </div>
-        `;
+        e.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div><a href="' + m.fileUrl + '" target="_blank" class="text-blue-400 underline hover:text-blue-300 transition">📎 Файл</a><span class="text-xs opacity-60 block mt-1">' + new Date(m.at).toLocaleTimeString() + '</span></div></div>';
       }
     }
     
@@ -272,21 +244,7 @@ function userPage() {
     if (typingIndicator) return;
     typingIndicator = document.createElement('div');
     typingIndicator.className = 'message-bot mr-auto p-3 rounded-2xl max-w-[80%]';
-    typingIndicator.innerHTML = `
-      <div class="flex items-start space-x-3">
-        <div class="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0">
-          <span>🤖</span>
-        </div>
-        <div class="flex items-center">
-          <span class="text-gray-300 mr-2">Печатает</span>
-          <div class="typing-dots">
-            <span class="dot">●</span>
-            <span class="dot">●</span>
-            <span class="dot">●</span>
-          </div>
-        </div>
-      </div>
-    `;
+    typingIndicator.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0"><span>🤖</span></div><div class="flex items-center"><span class="text-gray-300 mr-2">Печатает</span><div class="typing-dots"><span class="dot">●</span><span class="dot">●</span><span class="dot">●</span></div></div></div>';
     messages.appendChild(typingIndicator);
     messages.scrollTop = messages.scrollHeight;
   }
