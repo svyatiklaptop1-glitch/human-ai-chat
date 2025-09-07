@@ -270,6 +270,55 @@ function userPage() {
       document.getElementById('messages').innerHTML = '';
     }
   }
+  
+  // Новые функции настроек
+  function changeTheme() {
+    const theme = document.getElementById('themeSelect').value;
+    // Пока просто показываем уведомление
+    alert('Тема изменена на: ' + theme);
+  }
+  
+  function toggleSound() {
+    const enabled = document.getElementById('soundNotif').checked;
+    alert('Звуковые уведомления: ' + (enabled ? 'включены' : 'выключены'));
+  }
+  
+  function toggleDesktop() {
+    const enabled = document.getElementById('desktopNotif').checked;
+    if (enabled && Notification.permission !== 'granted') {
+      Notification.requestPermission();
+    }
+    alert('Уведомления на рабочем столе: ' + (enabled ? 'включены' : 'выключены'));
+  }
+  
+  function changeFontSize() {
+    const size = document.getElementById('fontSizeSlider').value;
+    document.getElementById('fontSizeValue').textContent = size + 'px';
+    document.getElementById('messages').style.fontSize = size + 'px';
+  }
+  
+  function exportChat() {
+    const messages = document.getElementById('messages').innerText;
+    const blob = new Blob([messages], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'chat_export_' + new Date().toISOString().slice(0,10) + '.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  
+  // Счетчик времени работы
+  let startTime = Date.now();
+  setInterval(() => {
+    const uptime = Math.floor((Date.now() - startTime) / 1000);
+    const minutes = Math.floor(uptime / 60);
+    const seconds = uptime % 60;
+    const uptimeEl = document.getElementById('uptime');
+    if (uptimeEl) {
+      uptimeEl.textContent = minutes + 'м ' + seconds + 'с';
+    }
+  }, 1000);
   function connectEvents(){const es=new EventSource('/events');es.addEventListener('message',ev=>{const msg=JSON.parse(ev.data);if(msg.role==='assistant')hideTyping();addMsg(msg);});}
   const sendBtn=document.getElementById('sendBtn');sendBtn.onclick=async()=>{let fileInput=document.getElementById('file');if(fileInput.files.length>0){const fd=new FormData();fd.append('file',fileInput.files[0]);const r=await fetch('/upload',{method:'POST',body:fd});const d=await r.json();await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileUrl:d.url})});fileInput.value='';showTyping();}else{const text=input.value.trim();if(!text)return;input.value='';await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});showTyping();}};
   input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();sendBtn.click();}});
