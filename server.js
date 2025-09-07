@@ -547,19 +547,25 @@ function userPage() {
   };
 
   async function register() {
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    
     const r = await fetch('/register', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({username: username.value, password: password.value})
+      body: JSON.stringify({username, password})
     });
     if(r.ok) alert('Зарегистрирован! Теперь войди.');
   }
 
   async function login() {
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    
     const r = await fetch('/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({username: username.value, password: password.value})
+      body: JSON.stringify({username, password})
     });
     if(r.ok) { 
       showChat(); 
@@ -630,16 +636,15 @@ function userPage() {
 
   function updateLanguage(lang) {
     const t = translations[lang] || translations.ru;
-    document.querySelector('[for="username"]')?.textContent = t.login;
-    document.querySelector('[for="password"]')?.textContent = t.register;
-    document.querySelector('h2')?.textContent = t.chatSupport;
+    document.querySelector('h1').textContent = t.login;
+    document.querySelector('h2').textContent = t.chatSupport;
     document.getElementById('input').placeholder = t.messagePlaceholder;
     document.getElementById('sendBtn').textContent = t.send;
-    document.querySelector('[for="themeSelect"]')?.textContent = t.theme;
-    document.querySelector('[for="languageSelect"]')?.textContent = t.language;
-    document.querySelector('[for="fontSizeSlider"]')?.textContent = t.fontSize;
-    document.querySelector('[for="soundNotif"] + span')?.textContent = t.sound;
-    document.querySelector('[for="desktopNotif"] + span')?.textContent = t.desktop;
+    document.querySelector('[for="themeSelect"]').textContent = t.theme;
+    document.querySelector('[for="languageSelect"]').textContent = t.language;
+    document.querySelector('[for="fontSizeSlider"]').textContent = t.fontSize;
+    document.querySelector('[for="soundNotif"] + span').textContent = t.sound;
+    document.querySelector('[for="desktopNotif"] + span').textContent = t.desktop;
   }
 
   function showChat() {
@@ -667,6 +672,7 @@ function userPage() {
   let typingIndicator = null;
   
   function addMsg(m) {
+    const messages = document.getElementById('messages');
     const e = document.createElement('div');
     const isUser = m.role === 'user';
     e.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
@@ -677,7 +683,7 @@ function userPage() {
     if (m.text) {
       bubble.innerHTML = '<p class="text-sm">' + m.text + '</p><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
     } else if (m.fileUrl) {
-      if (m.fileUrl.match(/\.(jpg|jpeg|png|gif)$/)) {
+      if (m.fileUrl.match(/\\.(jpg|jpeg|png|gif)$/)) {
         bubble.innerHTML = '<img src="' + m.fileUrl + '" class="max-w-[200px] rounded-xl"/><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
       } else {
         bubble.innerHTML = '<a href="' + m.fileUrl + '" target="_blank" class="text-blue-400 underline">📎 Файл</a><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
@@ -691,6 +697,7 @@ function userPage() {
   
   function showTyping() {
     if (typingIndicator) return;
+    const messages = document.getElementById('messages');
     typingIndicator = document.createElement('div');
     typingIndicator.className = 'flex justify-start';
     typingIndicator.innerHTML = '<div class="bg-gray-700 p-3 rounded-2xl"><div class="typing-dots flex gap-1"><span>●</span><span>●</span><span>●</span></div></div>';
@@ -870,17 +877,13 @@ function userPage() {
       if (m.role === 'assistant') hideTyping();
       addMsg(m);
     });
-    es.addEventListener('typing', e => {
-      showTyping();
-    });
-    es.addEventListener('stop_typing', e => {
-      hideTyping();
-    });
   }
 
   async function send() {
+    const input = document.getElementById('input');
+    const fileInput = document.getElementById('file');
     const text = input.value.trim();
-    const file = document.getElementById('file').files[0];
+    const file = fileInput.files[0];
     
     if (!text && !file) return;
     
@@ -894,7 +897,7 @@ function userPage() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ fileUrl: d.url })
       });
-      document.getElementById('file').value = '';
+      fileInput.value = '';
     } else {
       await fetch('/api/message', {
         method: 'POST',
@@ -904,9 +907,10 @@ function userPage() {
       input.value = '';
     }
     messagesSent++;
+    showTyping();
   }
 
-  input.addEventListener('keydown', e => {
+  document.getElementById('input').addEventListener('keydown', e => {
     if (e.key === 'Enter') send();
   });
   document.getElementById('sendBtn').addEventListener('click', send);
