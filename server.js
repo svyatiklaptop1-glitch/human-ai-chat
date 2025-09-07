@@ -92,6 +92,11 @@ app.post('/login', async (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/logout', (req, res) => {
+  res.clearCookie('userId');
+  res.json({ ok: true });
+});
+
 app.get('/me', (req, res) => {
   const user = users.users.find(u => u.id === req.cookies.userId);
   if (!user) return res.json({ ok: false });
@@ -131,12 +136,10 @@ app.post('/api/message', (req, res) => {
   res.json({ ok: true });
 });
 
-// ИСПРАВЛЕНО: Добавлена поддержка запроса истории для конкретного пользователя (для админа)
 app.get('/api/history', (req, res) => {
   const userId = req.cookies.userId;
-  const requestedUserId = req.query.userId; // Для админа
+  const requestedUserId = req.query.userId;
   
-  // Если админ запрашивает историю конкретного пользователя
   if (requestedUserId) {
     if (!chats.has(requestedUserId)) {
       return res.json({ ok: true, messages: [] });
@@ -144,7 +147,6 @@ app.get('/api/history', (req, res) => {
     return res.json({ ok: true, messages: chats.get(requestedUserId).messages });
   }
   
-  // Обычный запрос от пользователя
   if (!userId || !chats.has(userId)) {
     return res.json({ ok: true, messages: [] });
   }
@@ -182,17 +184,91 @@ app.post('/operator/reply', (req, res) => {
 
 // ========== Pages ==========
 function userPage() {
-  return `<!doctype html><html><head><meta charset=utf-8><script src="https://cdn.tailwindcss.com"></script></head>
-  <body class="bg-gray-900 text-white flex items-center justify-center h-screen">
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .slide-panel {
+      transform: translateX(100%);
+      transition: transform 0.3s ease;
+    }
+    .slide-panel.open {
+      transform: translateX(0);
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal.open {
+      display: flex;
+    }
+    .typing-dots span {
+      animation: blink 1.4s infinite;
+      animation-fill-mode: both;
+    }
+    .typing-dots span:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    .typing-dots span:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+    @keyframes blink {
+      0%, 60%, 100% {
+        opacity: 0.3;
+      }
+      30% {
+        opacity: 1;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white flex items-center justify-center h-screen">
+  <!-- AUTH FORM -->
   <div id="auth" class="w-full max-w-sm p-4 bg-gray-800 rounded-xl hidden">
     <h1 class="text-xl mb-2">Вход</h1>
     <input id="username" placeholder="Имя" class="w-full mb-2 p-2 rounded bg-gray-700"/>
     <input id="password" type="password" placeholder="Пароль" class="w-full mb-2 p-2 rounded bg-gray-700"/>
-    <button onclick="register()" class="w-full mb-2 bg-indigo-600 p-2 rounded">Регистрация</button>
-    <button onclick="login()" class="w-full bg-green-600 p-2 rounded">Войти</button>
+    <button onclick="register()" class="w-full mb-2 bg-indigo-600 p-2 rounded hover:bg-indigo-700">Регистрация</button>
+    <button onclick="login()" class="w-full bg-green-600 p-2 rounded hover:bg-green-700">Войти</button>
   </div>
-  <div id="chat" class="hidden w-full max-w-md flex flex-col h-[90vh] bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
+
+  <!-- MAIN CHAT -->
+  <div id="chat" class="hidden w-full max-w-md flex flex-col h-[90vh] bg-gray-800 rounded-2xl shadow-lg overflow-hidden relative">
+    <!-- HEADER С КНОПКАМИ -->
+    <div class="bg-gray-700 p-3 flex items-center justify-between border-b border-gray-600">
+      <h2 class="text-lg font-semibold">💬 Чат поддержки</h2>
+      <div class="flex items-center gap-2">
+        <!-- КНОПКА ПРОФИЛЯ -->
+        <button onclick="openProfile()" class="p-2 hover:bg-gray-600 rounded-lg transition" title="Профиль">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+          </svg>
+        </button>
+        <!-- КНОПКА НАСТРОЕК (ШЕСТЕРЕНКА) -->
+        <button onclick="openSettings()" class="p-2 hover:bg-gray-600 rounded-lg transition" title="Настройки">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- MESSAGES -->
     <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
+
+    <!-- INPUT -->
     <div class="p-3 border-t border-gray-700 space-y-2">
       <div class="flex items-center gap-2">
         <input id="input" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white outline-none" placeholder="Сообщение...">
@@ -202,40 +278,202 @@ function userPage() {
       <button id="sendBtn" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-white font-semibold">Отправить</button>
     </div>
   </div>
+
+  <!-- ПАНЕЛЬ НАСТРОЕК -->
+  <div id="settingsPanel" class="fixed right-0 top-0 h-full w-80 bg-gray-800 shadow-2xl slide-panel z-50">
+    <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+      <h3 class="text-xl font-semibold">⚙️ Настройки</h3>
+      <button onclick="closeSettings()" class="text-gray-400 hover:text-white">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+    </div>
+    <div class="p-4 space-y-4 overflow-y-auto h-full">
+      <!-- Тема -->
+      <div>
+        <label class="block text-sm font-medium mb-2">🎨 Тема оформления</label>
+        <select id="themeSelect" onchange="changeTheme()" class="w-full p-2 bg-gray-700 rounded-lg">
+          <option value="dark">Темная</option>
+          <option value="light">Светлая</option>
+          <option value="auto">Автоматически</option>
+        </select>
+      </div>
+      
+      <!-- Уведомления -->
+      <div>
+        <label class="block text-sm font-medium mb-2">🔔 Уведомления</label>
+        <div class="space-y-2">
+          <label class="flex items-center">
+            <input type="checkbox" id="soundNotif" checked class="mr-2">
+            <span>Звуковые уведомления</span>
+          </label>
+          <label class="flex items-center">
+            <input type="checkbox" id="desktopNotif" class="mr-2">
+            <span>Уведомления на рабочем столе</span>
+          </label>
+        </div>
+      </div>
+      
+      <!-- Размер шрифта -->
+      <div>
+        <label class="block text-sm font-medium mb-2">📝 Размер шрифта</label>
+        <input type="range" id="fontSizeSlider" min="12" max="20" value="14" onchange="changeFontSize()" class="w-full">
+        <div class="text-center text-sm mt-1">
+          <span id="fontSizeValue">14px</span>
+        </div>
+      </div>
+      
+      <!-- Язык -->
+      <div>
+        <label class="block text-sm font-medium mb-2">🌐 Язык интерфейса</label>
+        <select class="w-full p-2 bg-gray-700 rounded-lg">
+          <option>Русский</option>
+          <option>English</option>
+          <option>Қазақша</option>
+        </select>
+      </div>
+      
+      <!-- Действия -->
+      <div class="space-y-2 pt-4 border-t border-gray-700">
+        <button onclick="clearChat()" class="w-full p-2 bg-red-600 hover:bg-red-700 rounded-lg">🗑️ Очистить чат</button>
+        <button onclick="exportChat()" class="w-full p-2 bg-blue-600 hover:bg-blue-700 rounded-lg">💾 Экспорт чата</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО ПРОФИЛЯ -->
+  <div id="profileModal" class="modal">
+    <div class="bg-gray-800 rounded-2xl p-6 w-96 max-w-[90%]">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-semibold">👤 Профиль</h3>
+        <button onclick="closeProfile()" class="text-gray-400 hover:text-white">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+      
+      <div class="space-y-4">
+        <div class="text-center">
+          <div class="w-20 h-20 bg-indigo-600 rounded-full mx-auto mb-3 flex items-center justify-center text-3xl">
+            👤
+          </div>
+          <h4 id="profileUsername" class="text-lg font-medium">Загрузка...</h4>
+          <p class="text-sm text-gray-400">ID: <span id="profileId">...</span></p>
+        </div>
+        
+        <div class="border-t border-gray-700 pt-4">
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-sm text-gray-400">Статус</span>
+            <span class="text-sm bg-green-600 px-2 py-1 rounded">Онлайн</span>
+          </div>
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-sm text-gray-400">Сообщений отправлено</span>
+            <span id="messageCount" class="text-sm">0</span>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-sm text-gray-400">Время в чате</span>
+            <span id="chatTime" class="text-sm">0м</span>
+          </div>
+        </div>
+        
+        <div class="space-y-2 pt-4 border-t border-gray-700">
+          <button onclick="changePassword()" class="w-full p-2 bg-gray-700 hover:bg-gray-600 rounded-lg">🔐 Изменить пароль</button>
+          <button onclick="logout()" class="w-full p-2 bg-red-600 hover:bg-red-700 rounded-lg">🚪 Выйти</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
+  let currentUser = null;
+  let messagesSent = 0;
+  let chatStartTime = Date.now();
+
   async function register() {
-    const r = await fetch('/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});
+    const r = await fetch('/register', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: username.value, password: password.value})
+    });
     if(r.ok) alert('Зарегистрирован! Теперь войди.');
   }
+
   async function login() {
-    const r = await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});
-    if(r.ok) { showChat(); } else { alert("Ошибка входа"); }
+    const r = await fetch('/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: username.value, password: password.value})
+    });
+    if(r.ok) { 
+      showChat(); 
+    } else { 
+      alert("Ошибка входа"); 
+    }
   }
+
+  async function logout() {
+    if(confirm('Вы уверены, что хотите выйти?')) {
+      await fetch('/logout', {method: 'POST'});
+      location.reload();
+    }
+  }
+
   async function checkAuth() {
-    const r = await fetch('/me'); const d = await r.json();
-    if (d.ok) { showChat(); } else { showAuth(); }
+    const r = await fetch('/me'); 
+    const d = await r.json();
+    if (d.ok) { 
+      currentUser = d.user;
+      showChat(); 
+    } else { 
+      showAuth(); 
+    }
   }
-  function showChat(){document.getElementById('auth').classList.add('hidden');document.getElementById('chat').classList.remove('hidden');loadHistory();connectEvents();}
-  function showAuth(){document.getElementById('auth').classList.remove('hidden');document.getElementById('chat').classList.add('hidden');}
-  async function loadHistory(){const r=await fetch('/api/history');const d=await r.json();d.messages.forEach(addMsg);}
+
+  function showChat() {
+    document.getElementById('auth').classList.add('hidden');
+    document.getElementById('chat').classList.remove('hidden');
+    chatStartTime = Date.now();
+    loadHistory();
+    connectEvents();
+  }
+
+  function showAuth() {
+    document.getElementById('auth').classList.remove('hidden');
+    document.getElementById('chat').classList.add('hidden');
+  }
+
+  async function loadHistory() {
+    const r = await fetch('/api/history');
+    const d = await r.json();
+    d.messages.forEach(m => {
+      if(m.role === 'user') messagesSent++;
+      addMsg(m);
+    });
+  }
+
   let typingIndicator = null;
+  
   function addMsg(m) {
     const e = document.createElement('div');
-    e.className = 'p-3 rounded-2xl max-w-[80%] ' + (m.role === 'user' ? 'message-user ml-auto text-white' : 'message-bot mr-auto text-white');
+    const isUser = m.role === 'user';
+    e.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
+    
+    const bubble = document.createElement('div');
+    bubble.className = 'max-w-[80%] p-3 rounded-2xl ' + (isUser ? 'bg-indigo-600' : 'bg-gray-700');
     
     if (m.text) {
-      const avatar = document.createElement('div');
-      avatar.className = 'flex items-start space-x-3';
-      avatar.innerHTML = '<div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div class="flex-1"><p class="text-sm">' + m.text + '</p><span class="text-xs opacity-60">' + new Date(m.at).toLocaleTimeString() + '</span></div>';
-      e.appendChild(avatar);
+      bubble.innerHTML = '<p class="text-sm">' + m.text + '</p><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
     } else if (m.fileUrl) {
-      if (m.fileUrl.match(/\\.(jpg|jpeg|png|gif)$/)) {
-        e.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div><img src="' + m.fileUrl + '" class="max-w-[200px] rounded-xl shadow-lg"/><span class="text-xs opacity-60 block mt-1">' + new Date(m.at).toLocaleTimeString() + '</span></div></div>';
+      if (m.fileUrl.match(/\.(jpg|jpeg|png|gif)$/)) {
+        bubble.innerHTML = '<img src="' + m.fileUrl + '" class="max-w-[200px] rounded-xl"/><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
       } else {
-        e.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div><a href="' + m.fileUrl + '" target="_blank" class="text-blue-400 underline hover:text-blue-300 transition">📎 Файл</a><span class="text-xs opacity-60 block mt-1">' + new Date(m.at).toLocaleTimeString() + '</span></div></div>';
+        bubble.innerHTML = '<a href="' + m.fileUrl + '" target="_blank" class="text-blue-400 underline">📎 Файл</a><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
       }
     }
     
+    e.appendChild(bubble);
     messages.appendChild(e);
     messages.scrollTop = messages.scrollHeight;
   }
@@ -243,8 +481,8 @@ function userPage() {
   function showTyping() {
     if (typingIndicator) return;
     typingIndicator = document.createElement('div');
-    typingIndicator.className = 'message-bot mr-auto p-3 rounded-2xl max-w-[80%]';
-    typingIndicator.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0"><span>🤖</span></div><div class="flex items-center"><span class="text-gray-300 mr-2">Печатает</span><div class="typing-dots"><span class="dot">●</span><span class="dot">●</span><span class="dot">●</span></div></div></div>';
+    typingIndicator.className = 'flex justify-start';
+    typingIndicator.innerHTML = '<div class="bg-gray-700 p-3 rounded-2xl"><div class="typing-dots flex gap-1"><span>●</span><span>●</span><span>●</span></div></div>';
     messages.appendChild(typingIndicator);
     messages.scrollTop = messages.scrollHeight;
   }
@@ -255,48 +493,35 @@ function userPage() {
       typingIndicator = null;
     }
   }
-  
-  function toggleSettings() {
-    const panel = document.getElementById('settingsPanel');
-    panel.classList.toggle('open');
+
+  // ФУНКЦИИ НАСТРОЕК
+  function openSettings() {
+    document.getElementById('settingsPanel').classList.add('open');
   }
-  
-  function showProfile() {
-    alert('Профиль пользователя (в разработке)');
+
+  function closeSettings() {
+    document.getElementById('settingsPanel').classList.remove('open');
   }
-  
-  function clearChat() {
-    if (confirm('Очистить историю чата?')) {
-      document.getElementById('messages').innerHTML = '';
-    }
-  }
-  
-  // Новые функции настроек
+
   function changeTheme() {
     const theme = document.getElementById('themeSelect').value;
-    // Пока просто показываем уведомление
-    alert('Тема изменена на: ' + theme);
+    // Здесь можно добавить реальную смену темы
+    console.log('Тема изменена на:', theme);
   }
-  
-  function toggleSound() {
-    const enabled = document.getElementById('soundNotif').checked;
-    alert('Звуковые уведомления: ' + (enabled ? 'включены' : 'выключены'));
-  }
-  
-  function toggleDesktop() {
-    const enabled = document.getElementById('desktopNotif').checked;
-    if (enabled && Notification.permission !== 'granted') {
-      Notification.requestPermission();
-    }
-    alert('Уведомления на рабочем столе: ' + (enabled ? 'включены' : 'выключены'));
-  }
-  
+
   function changeFontSize() {
     const size = document.getElementById('fontSizeSlider').value;
     document.getElementById('fontSizeValue').textContent = size + 'px';
     document.getElementById('messages').style.fontSize = size + 'px';
   }
-  
+
+  function clearChat() {
+    if (confirm('Очистить историю чата?')) {
+      document.getElementById('messages').innerHTML = '';
+      messagesSent = 0;
+    }
+  }
+
   function exportChat() {
     const messages = document.getElementById('messages').innerText;
     const blob = new Blob([messages], { type: 'text/plain' });
@@ -307,33 +532,82 @@ function userPage() {
     a.click();
     URL.revokeObjectURL(url);
   }
-  
-  // Счетчик времени работы
-  let startTime = Date.now();
-  setInterval(() => {
-    const uptime = Math.floor((Date.now() - startTime) / 1000);
-    const minutes = Math.floor(uptime / 60);
-    const seconds = uptime % 60;
-    const uptimeEl = document.getElementById('uptime');
-    if (uptimeEl) {
-      uptimeEl.textContent = minutes + 'м ' + seconds + 'с';
+
+  // ФУНКЦИИ ПРОФИЛЯ
+  function openProfile() {
+    document.getElementById('profileModal').classList.add('open');
+    if(currentUser) {
+      document.getElementById('profileUsername').textContent = currentUser.username;
+      document.getElementById('profileId').textContent = currentUser.id;
     }
-  }, 1000);
-  function connectEvents(){const es=new EventSource('/events');es.addEventListener('message',ev=>{const msg=JSON.parse(ev.data);if(msg.role==='assistant')hideTyping();addMsg(msg);});}
-  const sendBtn=document.getElementById('sendBtn');sendBtn.onclick=async()=>{let fileInput=document.getElementById('file');if(fileInput.files.length>0){const fd=new FormData();fd.append('file',fileInput.files[0]);const r=await fetch('/upload',{method:'POST',body:fd});const d=await r.json();await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileUrl:d.url})});fileInput.value='';showTyping();}else{const text=input.value.trim();if(!text)return;input.value='';await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});showTyping();}};
-  input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();sendBtn.click();}});
-  checkAuth();
-  
-  // Закрытие панели настроек при клике вне её
-  document.addEventListener('click', function(e) {
-    const panel = document.getElementById('settingsPanel');
-    const settingsBtn = e.target.closest('button[onclick="toggleSettings()"]');
-    if (!panel.contains(e.target) && !settingsBtn && panel.classList.contains('open')) {
-      panel.classList.remove('open');
+    document.getElementById('messageCount').textContent = messagesSent;
+    const minutes = Math.floor((Date.now() - chatStartTime) / 60000);
+    document.getElementById('chatTime').textContent = minutes + 'м';
+  }
+
+  function closeProfile() {
+    document.getElementById('profileModal').classList.remove('open');
+  }
+
+  function changePassword() {
+    const newPass = prompt('Введите новый пароль:');
+    if(newPass) {
+      alert('Функция смены пароля будет добавлена позже');
+    }
+  }
+
+  // ОТПРАВКА СООБЩЕНИЙ
+  function connectEvents() {
+    const es = new EventSource('/events');
+    es.addEventListener('message', ev => {
+      const msg = JSON.parse(ev.data);
+      if(msg.role === 'assistant') hideTyping();
+      addMsg(msg);
+    });
+  }
+
+  const sendBtn = document.getElementById('sendBtn');
+  sendBtn.onclick = async() => {
+    let fileInput = document.getElementById('file');
+    if(fileInput.files.length > 0) {
+      const fd = new FormData();
+      fd.append('file', fileInput.files[0]);
+      const r = await fetch('/upload', {method: 'POST', body: fd});
+      const d = await r.json();
+      await fetch('/api/message', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({fileUrl: d.url})
+      });
+      fileInput.value = '';
+      messagesSent++;
+      showTyping();
+    } else {
+      const text = input.value.trim();
+      if(!text) return;
+      input.value = '';
+      await fetch('/api/message', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text})
+      });
+      messagesSent++;
+      showTyping();
+    }
+  };
+
+  input.addEventListener("keydown", e => {
+    if(e.key === "Enter") {
+      e.preventDefault();
+      sendBtn.click();
     }
   });
-  
-  </script></body></html>`;
+
+  // Запуск
+  checkAuth();
+  </script>
+</body>
+</html>`;
 }
 
 function operatorPage() {
@@ -345,24 +619,3 @@ function operatorPage() {
       <div id="thread" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
       <div class="flex p-3 border-t border-gray-700">
         <input id="reply" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white" placeholder="Ответ...">
-        <button id="send" class="ml-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl">Ответить</button>
-      </div>
-    </div>
-  </div>
-  <script>
-  const l=document.getElementById('list'),t=document.getElementById('thread'),r=document.getElementById('reply'),s=document.getElementById('send');const token=new URLSearchParams(location.search).get('token');let current=null;
-  function addMsg(m){const e=document.createElement('div');if(m.text){e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;}else if(m.fileUrl){if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)){e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px] rounded"/>';}else{e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank" class="underline">Файл</a>';}}t.appendChild(e);t.scrollTop=t.scrollHeight;}
-  // ИСПРАВЛЕНО: Теперь передаем userId в запрос истории
-  function openChat(id){current=id;t.innerHTML='';fetch('/api/history?userId=' + id).then(r=>r.json()).then(d=>{d.messages.forEach(addMsg)});} 
-  s.onclick=()=>{if(!current)return;const text=r.value.trim();if(!text)return;fetch('/operator/reply?token='+token,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:current,text})});r.value='';};
-  // ИСПРАВЛЕНО: Добавляем обработку новых сообщений от пользователей в реальном времени
-  const es=new EventSource('/operator/events?token='+token);
-  es.addEventListener('snapshot',ev=>{const{list}=JSON.parse(ev.data);l.innerHTML='';list.forEach(c=>{const d=document.createElement('div');d.className='p-2 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600';d.textContent=c.id+' ('+c.count+')';d.onclick=()=>openChat(c.id);l.appendChild(d)})});
-  // ИСПРАВЛЕНО: Добавляем обработку новых сообщений в реальном времени
-  es.addEventListener('new_user_message',ev=>{const data=JSON.parse(ev.data);if(data.userId===current){openChat(current);}}); // Перезагружаем чат если это текущий пользователь
-  es.addEventListener('assistant_message',ev=>{const data=JSON.parse(ev.data);if(data.userId===current){openChat(current);}}); // Показываем наш ответ
-  </script></body></html>`;
-}
-
-// -----------------
-app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
