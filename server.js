@@ -317,7 +317,7 @@ function userPage() {
   <div id="chat" class="hidden w-full max-w-md flex flex-col h-[90vh] bg-gray-800 rounded-2xl shadow-lg overflow-hidden relative">
     <!-- HEADER С КНОПКАМИ -->
     <div class="bg-gray-700 p-3 flex items-center justify-between border-b border-gray-600">
-      <h2 class="text-lg font-semibold">💬 Чат поддержки</h2>
+      <h2 class="text-lg font-semibold">🤖 Чат с ботом нейросетью</h2>
       <div class="flex items-center gap-2">
         <!-- КНОПКА ПРОФИЛЯ -->
         <button onclick="openProfile()" class="p-2 hover:bg-gray-600 rounded-lg transition" title="Профиль">
@@ -469,7 +469,7 @@ function userPage() {
     ru: {
       login: "Вход",
       register: "Регистрация",
-      chatSupport: "💬 Чат поддержки",
+      chatSupport: "🤖 Чат с ботом нейросетью",
       messagePlaceholder: "Сообщение...",
       send: "Отправить",
       settings: "⚙️ Настройки",
@@ -495,7 +495,7 @@ function userPage() {
     en: {
       login: "Login",
       register: "Register",
-      chatSupport: "💬 Support Chat",
+      chatSupport: "🤖 AI Neural Network Chat",
       messagePlaceholder: "Message...",
       send: "Send",
       settings: "⚙️ Settings",
@@ -521,7 +521,7 @@ function userPage() {
     kz: {
       login: "Кіру",
       register: "Тіркелу",
-      chatSupport: "💬 Қолдау чаты",
+      chatSupport: "🤖 Жасанды интеллект чаты",
       messagePlaceholder: "Хабарлама...",
       send: "Жіберу",
       settings: "⚙️ Баптаулар",
@@ -614,10 +614,17 @@ function userPage() {
     document.getElementById('desktopNotif').checked = currentUser.settings.desktopNotif;
     
     // Показываем аватар если есть
-    if (currentUser.avatar) {
+    updateAvatarDisplay();
+  }
+
+  function updateAvatarDisplay() {
+    if (currentUser && currentUser.avatar) {
       document.getElementById('profileAvatar').src = currentUser.avatar;
       document.getElementById('profileAvatar').classList.remove('hidden');
       document.getElementById('profileAvatarPlaceholder').classList.add('hidden');
+    } else {
+      document.getElementById('profileAvatar').classList.add('hidden');
+      document.getElementById('profileAvatarPlaceholder').classList.remove('hidden');
     }
   }
 
@@ -628,9 +635,13 @@ function userPage() {
     if (isDark) {
       body.classList.add('bg-gray-900', 'text-white');
       body.classList.remove('bg-gray-100', 'text-gray-900');
+      document.getElementById('chat').classList.add('bg-gray-800');
+      document.getElementById('chat').classList.remove('bg-white');
     } else {
       body.classList.add('bg-gray-100', 'text-gray-900');
       body.classList.remove('bg-gray-900', 'text-white');
+      document.getElementById('chat').classList.add('bg-white');
+      document.getElementById('chat').classList.remove('bg-gray-800');
     }
   }
 
@@ -761,7 +772,7 @@ function userPage() {
     }
   }
 
-  async function saveNotificationSettings() {
+    async function saveNotificationSettings() {
     if (!currentUser) return;
     
     const soundNotif = document.getElementById('soundNotif').checked;
@@ -774,74 +785,70 @@ function userPage() {
     });
   }
 
+  // Слушатели изменений чекбоксов уведомлений
+  document.getElementById('soundNotif').addEventListener('change', saveNotificationSettings);
+  document.getElementById('desktopNotif').addEventListener('change', saveNotificationSettings);
+
   function clearChat() {
-    if (confirm('Очистить историю чата?')) {
-      document.getElementById('messages').innerHTML = '';
+    if(confirm('Вы уверены, что хотите очистить всю историю чата?')) {
+      const messages = document.getElementById('messages');
+      while (messages.firstChild) {
+        messages.removeChild(messages.firstChild);
+      }
+      // Здесь можно добавить вызов API для очистки на сервере
       messagesSent = 0;
+      updateProfileStats();
     }
   }
 
   function exportChat() {
-    const messages = document.getElementById('messages').innerText;
+    const messages = Array.from(document.getElementById('messages').children)
+      .map(msg => {
+        const bubble = msg.querySelector('div');
+        const text = bubble.querySelector('p')?.textContent || 
+                    (bubble.querySelector('img') ? '[Изображение]' : 
+                    (bubble.querySelector('a') ? '[Файл]' : ''));
+        const time = bubble.querySelector('.text-xs')?.textContent || '';
+        return `${time}: ${text}`;
+      })
+      .join('\\n');
+    
     const blob = new Blob([messages], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'chat_export_' + new Date().toISOString().slice(0,10) + '.txt';
+    a.download = `chat-export-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
   // ФУНКЦИИ ПРОФИЛЯ
   function openProfile() {
+    updateProfileStats();
     document.getElementById('profileModal').classList.add('open');
-    if(currentUser) {
-      document.getElementById('profileUsername').textContent = currentUser.username;
-      document.getElementById('profileId').textContent = currentUser.id;
-      document.getElementById('messageCount').textContent = messagesSent;
-      
-      const minutes = Math.floor((Date.now() - chatStartTime) / 60000);
-      document.getElementById('chatTime').textContent = minutes + 'м';
-      
-      if(currentUser.avatar) {
-        document.getElementById('profileAvatar').src = currentUser.avatar;
-        document.getElementById('profileAvatar').classList.remove('hidden');
-        document.getElementById('profileAvatarPlaceholder').classList.add('hidden');
-      } else {
-        document.getElementById('profileAvatar').classList.add('hidden');
-        document.getElementById('profileAvatarPlaceholder').classList.remove('hidden');
-      }
-    }
   }
 
   function closeProfile() {
     document.getElementById('profileModal').classList.remove('open');
   }
 
-  async function changeAvatar() {
-    const fileInput = document.getElementById('avatarInput');
-    if (!fileInput.files.length) return;
+  function updateProfileStats() {
+    if (!currentUser) return;
     
-    const formData = new FormData();
-    formData.append('avatar', fileInput.files[0]);
+    document.getElementById('profileUsername').textContent = currentUser.username;
+    document.getElementById('profileId').textContent = currentUser.id;
+    document.getElementById('messageCount').textContent = messagesSent;
     
-    const response = await fetch('/api/avatar', {
-      method: 'POST',
-      body: formData
-    });
+    // Расчет времени в чате
+    const minutes = Math.floor((Date.now() - chatStartTime) / 60000);
+    const hours = Math.floor(minutes / 60);
+    const displayTime = hours > 0 ? 
+      \`\${hours}ч \${minutes % 60}м\` : \`\${minutes}м\`;
+    document.getElementById('chatTime').textContent = displayTime;
     
-    if (response.ok) {
-      const result = await response.json();
-      currentUser.avatar = result.avatar;
-      
-      document.getElementById('profileAvatar').src = result.avatar;
-      document.getElementById('profileAvatar').classList.remove('hidden');
-      document.getElementById('profileAvatarPlaceholder').classList.add('hidden');
-      
-      alert('Аватар успешно обновлен!');
-    } else {
-      alert('Ошибка при загрузке аватара');
-    }
+    updateAvatarDisplay();
   }
 
   async function changePassword() {
@@ -851,69 +858,124 @@ function userPage() {
     const newPassword = prompt('Введите новый пароль:');
     if (!newPassword) return;
     
-    const response = await fetch('/api/change-password', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ currentPassword, newPassword })
-    });
+    const confirmPassword = prompt('Повторите новый пароль:');
+    if (newPassword !== confirmPassword) {
+      alert('Пароли не совпадают!');
+      return;
+    }
     
-    const result = await response.json();
-    if (result.ok) {
-      alert('Пароль успешно изменен!');
-    } else {
-      alert(result.error || 'Ошибка при изменении пароля');
+    try {
+      const response = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        alert('Пароль успешно изменен!');
+      } else {
+        alert(result.error || 'Ошибка при изменении пароля');
+      }
+    } catch (error) {
+      alert('Ошибка сети');
     }
   }
 
-  // ОБРАБОТЧИКИ СОБЫТИЙ
-  document.getElementById('avatarInput').addEventListener('change', changeAvatar);
-  document.getElementById('soundNotif').addEventListener('change', saveNotificationSettings);
-  document.getElementById('desktopNotif').addEventListener('change', saveNotificationSettings);
+  // Обработка загрузки аватара
+  document.getElementById('avatarInput').addEventListener('change', async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const formData = new FormData();
+    formData.append('avatar', file);
+    
+    try {
+      const response = await fetch('/api/avatar', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        currentUser.avatar = result.avatar;
+        updateAvatarDisplay();
+        alert('Аватар успешно обновлен!');
+      } else {
+        alert('Ошибка при загрузке аватара');
+      }
+    } catch (error) {
+      alert('Ошибка сети');
+    }
+  });
 
+  // ОСНОВНАЯ ЛОГИКА ЧАТА
   function connectEvents() {
     const es = new EventSource('/events');
     es.addEventListener('message', e => {
-      const m = JSON.parse(e.data);
-      if (m.role === 'assistant') hideTyping();
-      addMsg(m);
+      const msg = JSON.parse(e.data);
+      hideTyping();
+      addMsg(msg);
+    });
+    
+    es.addEventListener('open', e => {
+      console.log('Connected to events');
+    });
+    
+    es.addEventListener('error', e => {
+      console.error('EventSource error:', e);
     });
   }
 
-  async function send() {
+  async function sendMessage() {
     const input = document.getElementById('input');
     const fileInput = document.getElementById('file');
-    const text = input.value.trim();
-    const file = fileInput.files[0];
+    let text = input.value.trim();
+    let fileUrl = null;
     
-    if (!text && !file) return;
-    
-    if (file) {
+    if (fileInput.files.length > 0) {
       const formData = new FormData();
-      formData.append('file', file);
-      const r = await fetch('/upload', { method: 'POST', body: formData });
-      const d = await r.json();
-      await fetch('/api/message', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ fileUrl: d.url })
-      });
+      formData.append('file', fileInput.files[0]);
+      
+      try {
+        const response = await fetch('/upload', {
+          method: 'POST',
+          body: formData
+        });
+        const result = await response.json();
+        fileUrl = result.url;
+      } catch (error) {
+        alert('Ошибка загрузки файла');
+        return;
+      }
       fileInput.value = '';
-    } else {
-      await fetch('/api/message', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ text })
-      });
-      input.value = '';
     }
+    
+    if (!text && !fileUrl) return;
+    
+    await fetch('/api/message', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ text, fileUrl })
+    });
+    
+    input.value = '';
     messagesSent++;
-    showTyping();
+    updateProfileStats();
   }
 
-  document.getElementById('input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') send();
+  // ОБРАБОТЧИКИ СОБЫТИЙ
+  document.getElementById('sendBtn').addEventListener('click', sendMessage);
+  
+  document.getElementById('input').addEventListener('keypress', e => {
+    if (e.key === 'Enter') sendMessage();
   });
-  document.getElementById('sendBtn').addEventListener('click', send);
+  
+  document.getElementById('file').addEventListener('change', function() {
+    if (this.files.length > 0) {
+      sendMessage();
+    }
+  });
 
   // ИНИЦИАЛИЗАЦИЯ
   checkAuth();
@@ -927,149 +989,137 @@ function operatorPage() {
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    .typing-dots span {
-      animation: blink 1.4s infinite;
-      animation-fill-mode: both;
-    }
-    .typing-dots span:nth-child(2) {
-      animation-delay: 0.2s;
-    }
-    .typing-dots span:nth-child(3) {
-      animation-delay: 0.4s;
-    }
-    @keyframes blink {
-      0%, 60%, 100% {
-        opacity: 0.3;
-      }
-      30% {
-        opacity: 1;
-      }
-    }
+    .user-item.active { background: #4F46E5; color: white; }
+    .message.user { background: #4F46E5; color: white; margin-left: 20%; }
+    .message.assistant { background: #374151; color: white; margin-right: 20%; }
   </style>
 </head>
-<body class="bg-gray-900 text-white flex h-screen">
-  <!-- SIDEBAR -->
-  <div class="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto">
-    <div class="p-4 border-b border-gray-700">
-      <h1 class="text-xl font-bold">Оператор 💬</h1>
+<body class="bg-gray-900 text-white p-4">
+  <h1 class="text-2xl mb-4">Операторская панель</h1>
+  
+  <div class="flex gap-4 h-[80vh]">
+    <!-- Список пользователей -->
+    <div class="w-1/4 bg-gray-800 rounded-lg p-4 overflow-y-auto">
+      <h2 class="text-lg mb-3">Пользователи</h2>
+      <div id="userList"></div>
     </div>
-    <div id="userList" class="p-2 space-y-1"></div>
-  </div>
-
-  <!-- MAIN CHAT -->
-  <div class="flex-1 flex flex-col">
-    <div id="chatHeader" class="p-4 border-b border-gray-700">
-      <h2 id="currentUserName" class="text-lg font-semibold">Выберите чат</h2>
-    </div>
-    <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
-    <div class="p-4 border-t border-gray-700 space-y-2">
-      <div class="flex items-center gap-2">
-        <input id="input" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white outline-none" placeholder="Сообщение...">
+    
+    <!-- Чат -->
+    <div class="flex-1 bg-gray-800 rounded-lg p-4 flex flex-col">
+      <h2 class="text-lg mb-3">Чат с <span id="currentUserName">...</span></h2>
+      
+      <div id="messages" class="flex-1 overflow-y-auto mb-3 space-y-2"></div>
+      
+      <div class="flex gap-2">
+        <input id="input" class="flex-1 p-2 rounded bg-gray-700" placeholder="Сообщение...">
+        <button id="sendBtn" class="bg-indigo-600 px-4 py-2 rounded">Отправить</button>
       </div>
-      <button id="sendBtn" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-white font-semibold">Отправить</button>
     </div>
   </div>
 
   <script>
   let currentUserId = null;
-  let typingIndicator = null;
-
+  let users = {};
+  
   const es = new EventSource('/operator/events?token=${OPERATOR_TOKEN}');
   es.addEventListener('snapshot', e => {
-    const d = JSON.parse(e.data);
-    renderUserList(d.list);
+    const data = JSON.parse(e.data);
+    updateUserList(data.list);
   });
+  
   es.addEventListener('new_user_message', e => {
-    const d = JSON.parse(e.data);
-    const item = document.getElementById('user-' + d.userId);
-    if (item) {
-      item.querySelector('.last-msg').textContent = d.preview;
-      item.querySelector('.time').textContent = 'now';
-    }
-    if (currentUserId === d.userId) {
-      loadHistory(d.userId);
+    const data = JSON.parse(e.data);
+    if (users[data.userId]) {
+      users[data.userId].preview = data.preview;
+      updateUserList();
     }
   });
+  
   es.addEventListener('assistant_message', e => {
-    const d = JSON.parse(e.data);
-    if (currentUserId === d.userId) {
-      loadHistory(d.userId);
+    const data = JSON.parse(e.data);
+    if (currentUserId === data.userId) {
+      loadHistory();
     }
   });
-
-  function renderUserList(list) {
-    const e = document.getElementById('userList');
-    e.innerHTML = '';
-    list.forEach(u => {
-      const item = document.createElement('div');
-      item.id = 'user-' + u.id;
-      item.className = 'p-3 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600';
-      item.innerHTML = '<div class="font-medium">User ' + u.id + '</div><div class="text-sm opacity-70 flex justify-between"><span class="last-msg">' + (u.count ? (u.count + ' messages') : 'No messages') + '</span><span class="time"></span></div>';
-      item.onclick = () => selectUser(u.id);
-      e.appendChild(item);
+  
+  function updateUserList(list) {
+    if (list) {
+      list.forEach(item => {
+        users[item.id] = { id: item.id, count: item.count, preview: '' };
+      });
+    }
+    
+    const userList = document.getElementById('userList');
+    userList.innerHTML = '';
+    
+    Object.values(users).forEach(user => {
+      const div = document.createElement('div');
+      div.className = 'p-2 border-b border-gray-700 cursor-pointer hover:bg-gray-700 user-item';
+      if (user.id === currentUserId) div.className += ' active';
+      div.innerHTML = \`User \${user.id} (\${user.count})<br><small>\${user.preview || 'Нет сообщений'}</small>\`;
+      div.addEventListener('click', () => selectUser(user.id));
+      userList.appendChild(div);
     });
   }
-
+  
   function selectUser(userId) {
     currentUserId = userId;
-    document.getElementById('currentUserName').textContent = 'Чат с User ' + userId;
-    loadHistory(userId);
+    document.getElementById('currentUserName').textContent = userId;
+    document.querySelectorAll('.user-item').forEach(item => {
+      item.classList.remove('active');
+    });
+    document.querySelectorAll('.user-item').forEach(item => {
+      if (item.textContent.includes(userId)) item.classList.add('active');
+    });
+    loadHistory();
   }
-
-  async function loadHistory(userId) {
-    const r = await fetch('/api/history?userId=' + userId);
+  
+  async function loadHistory() {
+    if (!currentUserId) return;
+    
+    const r = await fetch(\`/api/history?userId=\${currentUserId}\`);
     const d = await r.json();
-    const msgs = d.messages;
-    const e = document.getElementById('messages');
-    e.innerHTML = '';
-    msgs.forEach(m => addMsg(m));
-  }
-
-  function addMsg(m) {
-    const e = document.createElement('div');
-    const isUser = m.role === 'user';
-    e.className = 'flex ' + (isUser ? 'justify-start' : 'justify-end');
     
-    const bubble = document.createElement('div');
-    bubble.className = 'max-w-[80%] p-3 rounded-2xl ' + (isUser ? 'bg-gray-700' : 'bg-indigo-600');
+    const messages = document.getElementById('messages');
+    messages.innerHTML = '';
     
-    if (m.text) {
-      bubble.innerHTML = '<p class="text-sm">' + m.text + '</p><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
-    } else if (m.fileUrl) {
-      if (m.fileUrl.match(/\.(jpg|jpeg|png|gif)$/)) {
-        bubble.innerHTML = '<img src="' + m.fileUrl + '" class="max-w-[200px] rounded-xl"/><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
-      } else {
-        bubble.innerHTML = '<a href="' + m.fileUrl + '" target="_blank" class="text-blue-400 underline">📎 Файл</a><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
-      }
-    }
+    d.messages.forEach(m => {
+      const div = document.createElement('div');
+      div.className = \`p-3 rounded-lg message \${m.role}\`;
+      div.textContent = m.text || '[file]';
+      messages.appendChild(div);
+    });
     
-    e.appendChild(bubble);
-    messages.appendChild(e);
     messages.scrollTop = messages.scrollHeight;
   }
-
-  async function send() {
-    if (!currentUserId) return;
+  
+  async function sendMessage() {
+    if (!currentUserId) return alert('Выберите пользователя');
+    
+    const input = document.getElementById('input');
     const text = input.value.trim();
     if (!text) return;
-    await fetch('/operator/reply?token=${OPERATOR_TOKEN}', {
+    
+    await fetch(\`/operator/reply?token=${OPERATOR_TOKEN}\`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ userId: currentUserId, text })
     });
+    
     input.value = '';
+    loadHistory();
   }
-
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') send();
+  
+  document.getElementById('sendBtn').addEventListener('click', sendMessage);
+  document.getElementById('input').addEventListener('keypress', e => {
+    if (e.key === 'Enter') sendMessage();
   });
-  document.getElementById('sendBtn').addEventListener('click', send);
   </script>
 </body>
 </html>`;
 }
 
-app.listen(PORT, () => console.log('Server running on http://localhost:' + PORT));
+// Запуск сервера
+app.listen(PORT, () => console.log(\`Server running on http://localhost:\${PORT}\`));
