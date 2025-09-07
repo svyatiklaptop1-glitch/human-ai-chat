@@ -802,27 +802,27 @@ function userPage() {
   }
 
   function exportChat() {
-    const messages = Array.from(document.getElementById('messages').children)
-      .map(msg => {
-        const bubble = msg.querySelector('div');
-        const text = bubble.querySelector('p')?.textContent || 
-                    (bubble.querySelector('img') ? '[Изображение]' : 
-                    (bubble.querySelector('a') ? '[Файл]' : ''));
-        const time = bubble.querySelector('.text-xs')?.textContent || '';
-        return `${time}: ${text}`;
-      })
-      .join('\\n');
-    
-    const blob = new Blob([messages], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-export-${new Date().toISOString().split('T')[0]}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
+  const messages = Array.from(document.getElementById('messages').children)
+    .map(msg => {
+      const bubble = msg.querySelector('div');
+      const text = bubble.querySelector('p')?.textContent || 
+                  (bubble.querySelector('img') ? '[Изображение]' : 
+                  (bubble.querySelector('a') ? '[Файл]' : ''));
+      const time = bubble.querySelector('.text-xs')?.textContent || '';
+      return time + ': ' + text; // Исправлено здесь
+    })
+    .join('\n'); // Исправлено здесь
+  
+  const blob = new Blob([messages], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'chat-export-' + new Date().toISOString().split('T')[0] + '.txt'; // Исправлено здесь
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
   // ФУНКЦИИ ПРОФИЛЯ
   function openProfile() {
@@ -835,21 +835,21 @@ function userPage() {
   }
 
   function updateProfileStats() {
-    if (!currentUser) return;
-    
-    document.getElementById('profileUsername').textContent = currentUser.username;
-    document.getElementById('profileId').textContent = currentUser.id;
-    document.getElementById('messageCount').textContent = messagesSent;
-    
-    // Расчет времени в чате
-    const minutes = Math.floor((Date.now() - chatStartTime) / 60000);
-    const hours = Math.floor(minutes / 60);
-    const displayTime = hours > 0 ? 
-      \`\${hours}ч \${minutes % 60}м\` : \`\${minutes}м\`;
-    document.getElementById('chatTime').textContent = displayTime;
-    
-    updateAvatarDisplay();
-  }
+  if (!currentUser) return;
+  
+  document.getElementById('profileUsername').textContent = currentUser.username;
+  document.getElementById('profileId').textContent = currentUser.id;
+  document.getElementById('messageCount').textContent = messagesSent;
+  
+  // Расчет времени в чате
+  const minutes = Math.floor((Date.now() - chatStartTime) / 60000);
+  const hours = Math.floor(minutes / 60);
+  const displayTime = hours > 0 ? 
+    hours + 'ч ' + (minutes % 60) + 'м' : minutes + 'м'; // Исправлено здесь
+  document.getElementById('chatTime').textContent = displayTime;
+  
+  updateAvatarDisplay();
+}
 
   async function changePassword() {
     const currentPassword = prompt('Введите текущий пароль:');
@@ -1023,7 +1023,7 @@ function operatorPage() {
   let currentUserId = null;
   let users = {};
   
-  const es = new EventSource('/operator/events?token=${OPERATOR_TOKEN}');
+  const es = new EventSource('/operator/events?token=' + OPERATOR_TOKEN); // Исправлено здесь
   es.addEventListener('snapshot', e => {
     const data = JSON.parse(e.data);
     updateUserList(data.list);
@@ -1045,24 +1045,24 @@ function operatorPage() {
   });
   
   function updateUserList(list) {
-    if (list) {
-      list.forEach(item => {
-        users[item.id] = { id: item.id, count: item.count, preview: '' };
-      });
-    }
-    
-    const userList = document.getElementById('userList');
-    userList.innerHTML = '';
-    
-    Object.values(users).forEach(user => {
-      const div = document.createElement('div');
-      div.className = 'p-2 border-b border-gray-700 cursor-pointer hover:bg-gray-700 user-item';
-      if (user.id === currentUserId) div.className += ' active';
-      div.innerHTML = \`User \${user.id} (\${user.count})<br><small>\${user.preview || 'Нет сообщений'}</small>\`;
-      div.addEventListener('click', () => selectUser(user.id));
-      userList.appendChild(div);
+  if (list) {
+    list.forEach(item => {
+      users[item.id] = { id: item.id, count: item.count, preview: '' };
     });
   }
+  
+  const userList = document.getElementById('userList');
+  userList.innerHTML = '';
+  
+  Object.values(users).forEach(user => {
+    const div = document.createElement('div');
+    div.className = 'p-2 border-b border-gray-700 cursor-pointer hover:bg-gray-700 user-item';
+    if (user.id === currentUserId) div.className += ' active';
+    div.innerHTML = 'User ' + user.id + ' (' + user.count + ')<br><small>' + (user.preview || 'Нет сообщений') + '</small>'; // Исправлено здесь
+    div.addEventListener('click', () => selectUser(user.id));
+    userList.appendChild(div);
+  });
+}
   
   function selectUser(userId) {
     currentUserId = userId;
@@ -1077,40 +1077,40 @@ function operatorPage() {
   }
   
   async function loadHistory() {
-    if (!currentUserId) return;
-    
-    const r = await fetch(\`/api/history?userId=\${currentUserId}\`);
-    const d = await r.json();
-    
-    const messages = document.getElementById('messages');
-    messages.innerHTML = '';
-    
-    d.messages.forEach(m => {
-      const div = document.createElement('div');
-      div.className = \`p-3 rounded-lg message \${m.role}\`;
-      div.textContent = m.text || '[file]';
-      messages.appendChild(div);
-    });
-    
-    messages.scrollTop = messages.scrollHeight;
-  }
+  if (!currentUserId) return;
+  
+  const r = await fetch('/api/history?userId=' + currentUserId); // Исправлено здесь
+  const d = await r.json();
+  
+  const messages = document.getElementById('messages');
+  messages.innerHTML = '';
+  
+  d.messages.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'p-3 rounded-lg message ' + m.role; // Исправлено здесь
+    div.textContent = m.text || '[file]';
+    messages.appendChild(div);
+  });
+  
+  messages.scrollTop = messages.scrollHeight;
+}
   
   async function sendMessage() {
-    if (!currentUserId) return alert('Выберите пользователя');
-    
-    const input = document.getElementById('input');
-    const text = input.value.trim();
-    if (!text) return;
-    
-    await fetch(\`/operator/reply?token=${OPERATOR_TOKEN}\`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ userId: currentUserId, text })
-    });
-    
-    input.value = '';
-    loadHistory();
-  }
+  if (!currentUserId) return alert('Выберите пользователя');
+  
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text) return;
+  
+  await fetch('/operator/reply?token=' + OPERATOR_TOKEN, { // Исправлено здесь
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ userId: currentUserId, text })
+  });
+  
+  input.value = '';
+  loadHistory();
+}
   
   document.getElementById('sendBtn').addEventListener('click', sendMessage);
   document.getElementById('input').addEventListener('keypress', e => {
