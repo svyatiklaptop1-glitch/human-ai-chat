@@ -1,258 +1,3 @@
-/**
- * Human-in-the-Loop Chat — с регистрацией, Cloudinary и автологином
- * ---------------------------------------------------
- * npm install express cookie-parser nanoid bcrypt cloudinary multer multer-storage-cloudinary
- *
- * Пользователь: http://localhost:3000/
- * Оператор:     http://localhost:3000/operator?token=YOUR_SECRET
- */
-
-const express = require('express');
-const cookieParser = require('cookie-parser');
-const { nanoid } = require('nanoid');
-const fs = require('fs');
-const bcrypt = require('bcrypt');
-const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const multer = require('multer');
-
-const PORT = process.env.PORT || 3000;
-const OPERATOR_TOKEN = process.env.OPERATOR_TOKEN || 'CHANGE_ME';
-
-// ----------------- Cloudinary -----------------
-cloudinary.config({
-  cloud_name: process.env.CLOUD_NAME,
-  api_key: process.env.CLOUD_KEY,
-  api_secret: process.env.CLOUD_SECRET,
-});
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: 'chat_uploads',
-    allowed_formats: ['jpg', 'png', 'jpeg', 'gif', 'pdf'],
-  },
-});
-const upload = multer({ storage });
-
-// ----------------- Users -----------------
-const USERS_FILE = './users.json';
-let users = { users: [] };
-if (fs.existsSync(USERS_FILE)) {
-  users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-}
-function saveUsers() {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-}
-
-// ----------------- Chats -----------------
-const chats = new Map();
-const subscribers = new Map();
-
-function getOrCreateChat(userId) {
-  if (!chats.has(userId)) {
-    chats.set(userId, { id: userId, messages: [] });
-  }
-  return chats.get(userId);
-}
-
-function publish(channel, event, data) {
-  const subs = subscribers.get(channel);
-  if (!subs) return;
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of subs) {
-    try { res.write(payload); } catch (_) {}
-  }
-}
-
-// ----------------- App -----------------
-const app = express();
-app.use(express.json({ limit: '5mb' }));
-app.use(cookieParser());
-
-// ========== Auth ==========
-app.post('/register', async (req, res) => {
-  const { username, password } = req.body;
-  if (users.users.find(u => u.username === username)) {
-    return res.status(400).json({ ok: false, error: 'User exists' });
-  }
-  const hash = await bcrypt.hash(password, 10);
-  const user = { 
-    id: nanoid(8), 
-    username, 
-    password: hash,
-    avatar: null,
-    settings: {
-      theme: 'dark',
-      language: 'ru',
-      fontSize: 14,
-      soundNotif: true,
-      desktopNotif: false
-    }
-  };
-  users.users.push(user);
-  saveUsers();
-  res.json({ ok: true });
-});
-
-app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-  const user = users.users.find(u => u.username === username);
-  if (!user) return res.status(400).json({ ok: false });
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).json({ ok: false });
-  res.cookie('userId', user.id, { httpOnly: false, sameSite: 'lax' });
-  res.json({ ok: true });
-});
-
-app.post('/logout', (req, res) => {
-  res.clearCookie('userId');
-  res.json({ ok: true });
-});
-
-app.get('/me', (req, res) => {
-  const user = users.users.find(u => u.id === req.cookies.userId);
-  if (!user) return res.json({ ok: false });
-  res.json({ 
-    ok: true, 
-    user: { 
-      id: user.id, 
-      username: user.username,
-      avatar: user.avatar,
-      settings: user.settings
-    } 
-  });
-});
-
-// ========== Settings ==========
-app.post('/api/settings', (req, res) => {
-  const userId = req.cookies.userId;
-  if (!userId) return res.status(401).end();
-  
-  const user = users.users.find(u => u.id === userId);
-  if (!user) return res.status(404).json({ ok: false });
-  
-  const { theme, language, fontSize, soundNotif, desktopNotif } = req.body;
-  
-  if (theme) user.settings.theme = theme;
-  if (language) user.settings.language = language;
-  if (fontSize) user.settings.fontSize = fontSize;
-  if (soundNotif !== undefined) user.settings.soundNotif = soundNotif;
-  if (desktopNotif !== undefined) user.settings.desktopNotif = desktopNotif;
-  
-  saveUsers();
-  res.json({ ok: true });
-});
-
-app.post('/api/avatar', upload.single('avatar'), (req, res) => {
-  const userId = req.cookies.userId;
-  if (!userId) return res.status(401).end();
-  
-  const user = users.users.find(u => u.id === userId);
-  if (!user) return res.status(404).json({ ok: false });
-  
-  user.avatar = req.file.path;
-  saveUsers();
-  
-  res.json({ ok: true, avatar: req.file.path });
-});
-
-app.post('/api/change-password', async (req, res) => {
-  const userId = req.cookies.userId;
-  if (!userId) return res.status(401).end();
-  
-  const { currentPassword, newPassword } = req.body;
-  const user = users.users.find(u => u.id === userId);
-  if (!user) return res.status(404).json({ ok: false });
-  
-  const match = await bcrypt.compare(currentPassword, user.password);
-  if (!match) return res.status(400).json({ ok: false, error: 'Current password is incorrect' });
-  
-  user.password = await bcrypt.hash(newPassword, 10);
-  saveUsers();
-  
-  res.json({ ok: true });
-});
-
-// ========== Upload ==========
-app.post('/upload', upload.single('file'), (req, res) => {
-  res.json({ url: req.file.path });
-});
-
-// ========== Chat ==========
-app.get('/', (req, res) => {
-  res.type('html').send(userPage());
-});
-
-app.get('/events', (req, res) => {
-  const userId = req.cookies.userId;
-  if (!userId) return res.status(401).end();
-  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-  res.flushHeaders();
-  let set = subscribers.get(userId);
-  if (!set) { set = new Set(); subscribers.set(userId, set); }
-  set.add(res);
-  req.on('close', () => set.delete(res));
-});
-
-app.post('/api/message', (req, res) => {
-  const userId = req.cookies.userId;
-  if (!userId) return res.status(401).end();
-  const { text, fileUrl } = req.body;
-  const chat = getOrCreateChat(userId);
-  const msg = { id: nanoid(10), role: 'user', text: text || null, fileUrl: fileUrl || null, at: Date.now() };
-  chat.messages.push(msg);
-  publish(userId, 'message', msg);
-  publish('operator', 'new_user_message', { userId, preview: msg.text || '[file]' });
-  res.json({ ok: true });
-});
-
-app.get('/api/history', (req, res) => {
-  const userId = req.cookies.userId;
-  const requestedUserId = req.query.userId;
-  
-  if (requestedUserId) {
-    if (!chats.has(requestedUserId)) {
-      return res.json({ ok: true, messages: [] });
-    }
-    return res.json({ ok: true, messages: chats.get(requestedUserId).messages });
-  }
-  
-  if (!userId || !chats.has(userId)) {
-    return res.json({ ok: true, messages: [] });
-  }
-  res.json({ ok: true, messages: chats.get(userId).messages });
-});
-
-// ========== Operator ==========
-app.get('/operator', (req, res) => {
-  if (req.query.token !== OPERATOR_TOKEN) return res.status(401).send('Unauthorized');
-  res.type('html').send(operatorPage());
-});
-
-app.get('/operator/events', (req, res) => {
-  if (req.query.token !== OPERATOR_TOKEN) return res.status(401).end();
-  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-  res.flushHeaders();
-  let set = subscribers.get('operator');
-  if (!set) { set = new Set(); subscribers.set('operator', set); }
-  set.add(res);
-  req.on('close', () => set.delete(res));
-  const list = Array.from(chats.entries()).map(([id, c]) => ({ id, count: c.messages.length }));
-  res.write(`event: snapshot\ndata: ${JSON.stringify({ list })}\n\n`);
-});
-
-app.post('/operator/reply', (req, res) => {
-  if (req.query.token !== OPERATOR_TOKEN) return res.status(401).end();
-  const { userId, text } = req.body;
-  const chat = getOrCreateChat(userId);
-  const msg = { id: nanoid(10), role: 'assistant', text, at: Date.now() };
-  chat.messages.push(msg);
-  publish(userId, 'message', msg);
-  publish('operator', 'assistant_message', { userId, id: msg.id });
-  res.json({ ok: true });
-});
-
-// ========== Pages ==========
 function userPage() {
   return `<!doctype html>
 <html>
@@ -317,7 +62,7 @@ function userPage() {
   <div id="chat" class="hidden w-full max-w-md flex flex-col h-[90vh] bg-gray-800 rounded-2xl shadow-lg overflow-hidden relative">
     <!-- HEADER С КНОПКАМИ -->
     <div class="bg-gray-700 p-3 flex items-center justify-between border-b border-gray-600">
-      <h2 class="text-lg font-semibold">🤖 Чат с ботом нейросетью</h2>
+      <h2 class="text-lg font-semibold">💬 Чат поддержки</h2>
       <div class="flex items-center gap-2">
         <!-- КНОПКА ПРОФИЛЯ -->
         <button onclick="openProfile()" class="p-2 hover:bg-gray-600 rounded-lg transition" title="Профиль">
@@ -469,7 +214,7 @@ function userPage() {
     ru: {
       login: "Вход",
       register: "Регистрация",
-      chatSupport: "🤖 Чат с ботом нейросетью",
+      chatSupport: "💬 Чат поддержки",
       messagePlaceholder: "Сообщение...",
       send: "Отправить",
       settings: "⚙️ Настройки",
@@ -495,7 +240,7 @@ function userPage() {
     en: {
       login: "Login",
       register: "Register",
-      chatSupport: "🤖 AI Neural Network Chat",
+      chatSupport: "💬 Support Chat",
       messagePlaceholder: "Message...",
       send: "Send",
       settings: "⚙️ Settings",
@@ -521,7 +266,7 @@ function userPage() {
     kz: {
       login: "Кіру",
       register: "Тіркелу",
-      chatSupport: "🤖 Жасанды интеллект чаты",
+      chatSupport: "💬 Қолдау чаты",
       messagePlaceholder: "Хабарлама...",
       send: "Жіберу",
       settings: "⚙️ Баптаулар",
@@ -614,17 +359,10 @@ function userPage() {
     document.getElementById('desktopNotif').checked = currentUser.settings.desktopNotif;
     
     // Показываем аватар если есть
-    updateAvatarDisplay();
-  }
-
-  function updateAvatarDisplay() {
-    if (currentUser && currentUser.avatar) {
+    if (currentUser.avatar) {
       document.getElementById('profileAvatar').src = currentUser.avatar;
       document.getElementById('profileAvatar').classList.remove('hidden');
       document.getElementById('profileAvatarPlaceholder').classList.add('hidden');
-    } else {
-      document.getElementById('profileAvatar').classList.add('hidden');
-      document.getElementById('profileAvatarPlaceholder').classList.remove('hidden');
     }
   }
 
@@ -635,13 +373,9 @@ function userPage() {
     if (isDark) {
       body.classList.add('bg-gray-900', 'text-white');
       body.classList.remove('bg-gray-100', 'text-gray-900');
-      document.getElementById('chat').classList.add('bg-gray-800');
-      document.getElementById('chat').classList.remove('bg-white');
     } else {
       body.classList.add('bg-gray-100', 'text-gray-900');
       body.classList.remove('bg-gray-900', 'text-white');
-      document.getElementById('chat').classList.add('bg-white');
-      document.getElementById('chat').classList.remove('bg-gray-800');
     }
   }
 
@@ -772,7 +506,7 @@ function userPage() {
     }
   }
 
-    async function saveNotificationSettings() {
+  async function saveNotificationSettings() {
     if (!currentUser) return;
     
     const soundNotif = document.getElementById('soundNotif').checked;
@@ -785,71 +519,75 @@ function userPage() {
     });
   }
 
-  // Слушатели изменений чекбоксов уведомлений
-  document.getElementById('soundNotif').addEventListener('change', saveNotificationSettings);
-  document.getElementById('desktopNotif').addEventListener('change', saveNotificationSettings);
-
   function clearChat() {
-    if(confirm('Вы уверены, что хотите очистить всю историю чата?')) {
-      const messages = document.getElementById('messages');
-      while (messages.firstChild) {
-        messages.removeChild(messages.firstChild);
-      }
-      // Здесь можно добавить вызов API для очистки на сервере
+    if (confirm('Очистить историю чата?')) {
+      document.getElementById('messages').innerHTML = '';
       messagesSent = 0;
-      updateProfileStats();
     }
   }
 
   function exportChat() {
-  const messages = Array.from(document.getElementById('messages').children)
-    .map(msg => {
-      const bubble = msg.querySelector('div');
-      const text = bubble.querySelector('p')?.textContent || 
-                  (bubble.querySelector('img') ? '[Изображение]' : 
-                  (bubble.querySelector('a') ? '[Файл]' : ''));
-      const time = bubble.querySelector('.text-xs')?.textContent || '';
-      return time + ': ' + text; // Исправлено здесь
-    })
-    .join('\n'); // Исправлено здесь
-  
-  const blob = new Blob([messages], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'chat-export-' + new Date().toISOString().split('T')[0] + '.txt'; // Исправлено здесь
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
+    const messages = document.getElementById('messages').innerText;
+    const blob = new Blob([messages], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'chat_export_' + new Date().toISOString().slice(0,10) + '.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   // ФУНКЦИИ ПРОФИЛЯ
   function openProfile() {
-    updateProfileStats();
     document.getElementById('profileModal').classList.add('open');
+    if(currentUser) {
+      document.getElementById('profileUsername').textContent = currentUser.username;
+      document.getElementById('profileId').textContent = currentUser.id;
+      document.getElementById('messageCount').textContent = messagesSent;
+      
+      const minutes = Math.floor((Date.now() - chatStartTime) / 60000);
+      document.getElementById('chatTime').textContent = minutes + 'м';
+      
+      if(currentUser.avatar) {
+        document.getElementById('profileAvatar').src = currentUser.avatar;
+        document.getElementById('profileAvatar').classList.remove('hidden');
+        document.getElementById('profileAvatarPlaceholder').classList.add('hidden');
+      } else {
+        document.getElementById('profileAvatar').classList.add('hidden');
+        document.getElementById('profileAvatarPlaceholder').classList.remove('hidden');
+      }
+    }
   }
 
   function closeProfile() {
     document.getElementById('profileModal').classList.remove('open');
   }
 
-  function updateProfileStats() {
-  if (!currentUser) return;
-  
-  document.getElementById('profileUsername').textContent = currentUser.username;
-  document.getElementById('profileId').textContent = currentUser.id;
-  document.getElementById('messageCount').textContent = messagesSent;
-  
-  // Расчет времени в чате
-  const minutes = Math.floor((Date.now() - chatStartTime) / 60000);
-  const hours = Math.floor(minutes / 60);
-  const displayTime = hours > 0 ? 
-    hours + 'ч ' + (minutes % 60) + 'м' : minutes + 'м'; // Исправлено здесь
-  document.getElementById('chatTime').textContent = displayTime;
-  
-  updateAvatarDisplay();
-}
+  async function changeAvatar() {
+    const fileInput = document.getElementById('avatarInput');
+    if (!fileInput.files.length) return;
+    
+    const formData = new FormData();
+    formData.append('avatar', fileInput.files[0]);
+    
+    const response = await fetch('/api/avatar', {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      currentUser.avatar = result.avatar;
+      
+      document.getElementById('profileAvatar').src = result.avatar;
+      document.getElementById('profileAvatar').classList.remove('hidden');
+      document.getElementById('profileAvatarPlaceholder').classList.add('hidden');
+      
+      alert('Аватар успешно обновлен!');
+    } else {
+      alert('Ошибка при загрузке аватара');
+    }
+  }
 
   async function changePassword() {
     const currentPassword = prompt('Введите текущий пароль:');
@@ -858,124 +596,69 @@ function userPage() {
     const newPassword = prompt('Введите новый пароль:');
     if (!newPassword) return;
     
-    const confirmPassword = prompt('Повторите новый пароль:');
-    if (newPassword !== confirmPassword) {
-      alert('Пароли не совпадают!');
-      return;
-    }
-    
-    try {
-      const response = await fetch('/api/change-password', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ currentPassword, newPassword })
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        alert('Пароль успешно изменен!');
-      } else {
-        alert(result.error || 'Ошибка при изменении пароля');
-      }
-    } catch (error) {
-      alert('Ошибка сети');
-    }
-  }
-
-  // Обработка загрузки аватара
-  document.getElementById('avatarInput').addEventListener('change', async function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const formData = new FormData();
-    formData.append('avatar', file);
-    
-    try {
-      const response = await fetch('/api/avatar', {
-        method: 'POST',
-        body: formData
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        currentUser.avatar = result.avatar;
-        updateAvatarDisplay();
-        alert('Аватар успешно обновлен!');
-      } else {
-        alert('Ошибка при загрузке аватара');
-      }
-    } catch (error) {
-      alert('Ошибка сети');
-    }
-  });
-
-  // ОСНОВНАЯ ЛОГИКА ЧАТА
-  function connectEvents() {
-    const es = new EventSource('/events');
-    es.addEventListener('message', e => {
-      const msg = JSON.parse(e.data);
-      hideTyping();
-      addMsg(msg);
-    });
-    
-    es.addEventListener('open', e => {
-      console.log('Connected to events');
-    });
-    
-    es.addEventListener('error', e => {
-      console.error('EventSource error:', e);
-    });
-  }
-
-  async function sendMessage() {
-    const input = document.getElementById('input');
-    const fileInput = document.getElementById('file');
-    let text = input.value.trim();
-    let fileUrl = null;
-    
-    if (fileInput.files.length > 0) {
-      const formData = new FormData();
-      formData.append('file', fileInput.files[0]);
-      
-      try {
-        const response = await fetch('/upload', {
-          method: 'POST',
-          body: formData
-        });
-        const result = await response.json();
-        fileUrl = result.url;
-      } catch (error) {
-        alert('Ошибка загрузки файла');
-        return;
-      }
-      fileInput.value = '';
-    }
-    
-    if (!text && !fileUrl) return;
-    
-    await fetch('/api/message', {
+    const response = await fetch('/api/change-password', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ text, fileUrl })
+      body: JSON.stringify({ currentPassword, newPassword })
     });
     
-    input.value = '';
-    messagesSent++;
-    updateProfileStats();
+    const result = await response.json();
+    if (result.ok) {
+      alert('Пароль успешно изменен!');
+    } else {
+      alert(result.error || 'Ошибка при изменении пароля');
+    }
   }
 
   // ОБРАБОТЧИКИ СОБЫТИЙ
-  document.getElementById('sendBtn').addEventListener('click', sendMessage);
-  
-  document.getElementById('input').addEventListener('keypress', e => {
-    if (e.key === 'Enter') sendMessage();
-  });
-  
-  document.getElementById('file').addEventListener('change', function() {
-    if (this.files.length > 0) {
-      sendMessage();
+  document.getElementById('avatarInput').addEventListener('change', changeAvatar);
+  document.getElementById('soundNotif').addEventListener('change', saveNotificationSettings);
+  document.getElementById('desktopNotif').addEventListener('change', saveNotificationSettings);
+
+  function connectEvents() {
+    const es = new EventSource('/events');
+    es.addEventListener('message', e => {
+      const m = JSON.parse(e.data);
+      if (m.role === 'assistant') hideTyping();
+      addMsg(m);
+    });
+  }
+
+  async function send() {
+    const input = document.getElementById('input');
+    const fileInput = document.getElementById('file');
+    const text = input.value.trim();
+    const file = fileInput.files[0];
+    
+    if (!text && !file) return;
+    
+    if (file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      const r = await fetch('/upload', { method: 'POST', body: formData });
+      const d = await r.json();
+      await fetch('/api/message', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ fileUrl: d.url })
+      });
+      fileInput.value = '';
+    } else {
+      await fetch('/api/message', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ text })
+      });
+      input.value = '';
     }
+    messagesSent++;
+    showTyping();
+  }
+
+  document.getElementById('input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') send();
   });
+  document.getElementById('sendBtn').addEventListener('click', send);
 
   // ИНИЦИАЛИЗАЦИЯ
   checkAuth();
@@ -983,143 +666,3 @@ function userPage() {
 </body>
 </html>`;
 }
-
-function operatorPage() {
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    .user-item.active { background: #4F46E5; color: white; }
-    .message.user { background: #4F46E5; color: white; margin-left: 20%; }
-    .message.assistant { background: #374151; color: white; margin-right: 20%; }
-  </style>
-</head>
-<body class="bg-gray-900 text-white p-4">
-  <h1 class="text-2xl mb-4">Операторская панель</h1>
-  
-  <div class="flex gap-4 h-[80vh]">
-    <!-- Список пользователей -->
-    <div class="w-1/4 bg-gray-800 rounded-lg p-4 overflow-y-auto">
-      <h2 class="text-lg mb-3">Пользователи</h2>
-      <div id="userList"></div>
-    </div>
-    
-    <!-- Чат -->
-    <div class="flex-1 bg-gray-800 rounded-lg p-4 flex flex-col">
-      <h2 class="text-lg mb-3">Чат с <span id="currentUserName">...</span></h2>
-      
-      <div id="messages" class="flex-1 overflow-y-auto mb-3 space-y-2"></div>
-      
-      <div class="flex gap-2">
-        <input id="input" class="flex-1 p-2 rounded bg-gray-700" placeholder="Сообщение...">
-        <button id="sendBtn" class="bg-indigo-600 px-4 py-2 rounded">Отправить</button>
-      </div>
-    </div>
-  </div>
-
-  <script>
-  let currentUserId = null;
-  let users = {};
-  
-  const es = new EventSource('/operator/events?token=' + OPERATOR_TOKEN); // Исправлено здесь
-  es.addEventListener('snapshot', e => {
-    const data = JSON.parse(e.data);
-    updateUserList(data.list);
-  });
-  
-  es.addEventListener('new_user_message', e => {
-    const data = JSON.parse(e.data);
-    if (users[data.userId]) {
-      users[data.userId].preview = data.preview;
-      updateUserList();
-    }
-  });
-  
-  es.addEventListener('assistant_message', e => {
-    const data = JSON.parse(e.data);
-    if (currentUserId === data.userId) {
-      loadHistory();
-    }
-  });
-  
-  function updateUserList(list) {
-  if (list) {
-    list.forEach(item => {
-      users[item.id] = { id: item.id, count: item.count, preview: '' };
-    });
-  }
-  
-  const userList = document.getElementById('userList');
-  userList.innerHTML = '';
-  
-  Object.values(users).forEach(user => {
-    const div = document.createElement('div');
-    div.className = 'p-2 border-b border-gray-700 cursor-pointer hover:bg-gray-700 user-item';
-    if (user.id === currentUserId) div.className += ' active';
-    div.innerHTML = 'User ' + user.id + ' (' + user.count + ')<br><small>' + (user.preview || 'Нет сообщений') + '</small>'; // Исправлено здесь
-    div.addEventListener('click', () => selectUser(user.id));
-    userList.appendChild(div);
-  });
-}
-  
-  function selectUser(userId) {
-    currentUserId = userId;
-    document.getElementById('currentUserName').textContent = userId;
-    document.querySelectorAll('.user-item').forEach(item => {
-      item.classList.remove('active');
-    });
-    document.querySelectorAll('.user-item').forEach(item => {
-      if (item.textContent.includes(userId)) item.classList.add('active');
-    });
-    loadHistory();
-  }
-  
-  async function loadHistory() {
-  if (!currentUserId) return;
-  
-  const r = await fetch('/api/history?userId=' + currentUserId); // Исправлено здесь
-  const d = await r.json();
-  
-  const messages = document.getElementById('messages');
-  messages.innerHTML = '';
-  
-  d.messages.forEach(m => {
-    const div = document.createElement('div');
-    div.className = 'p-3 rounded-lg message ' + m.role; // Исправлено здесь
-    div.textContent = m.text || '[file]';
-    messages.appendChild(div);
-  });
-  
-  messages.scrollTop = messages.scrollHeight;
-}
-  
-  async function sendMessage() {
-  if (!currentUserId) return alert('Выберите пользователя');
-  
-  const input = document.getElementById('input');
-  const text = input.value.trim();
-  if (!text) return;
-  
-  await fetch('/operator/reply?token=' + OPERATOR_TOKEN, { // Исправлено здесь
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ userId: currentUserId, text })
-  });
-  
-  input.value = '';
-  loadHistory();
-}
-  
-  document.getElementById('sendBtn').addEventListener('click', sendMessage);
-  document.getElementById('input').addEventListener('keypress', e => {
-    if (e.key === 'Enter') sendMessage();
-  });
-  </script>
-</body>
-</html>`;
-}
-
-// Запуск сервера
-app.listen(PORT, () => console.log(\`Server running on http://localhost:\${PORT}\`));
