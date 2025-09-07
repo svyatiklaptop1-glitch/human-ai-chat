@@ -1,3 +1,414 @@
+/**
+ * Human-in-the-Loop Chat — с регистрацией, Cloudinary и автологином
+ * ---------------------------------------------------
+ * npm install express cookie-parser nanoid bcrypt cloudinary multer multer-storage-cloudinary
+ *
+ * Пользователь: http://localhost:3000/
+ * Оператор:     http://localhost:3000/operator?token=YOUR_SECRET
+ */
+
+const express = require('express');
+const cookieParser = require('cookie-parser');
+const { nanoid } = require('nanoid');
+const fs = require('fs');
+const bcrypt = require('bcrypt');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const multer = require('multer');
+
+const PORT = process.env.PORT || 3000;
+const OPERATOR_TOKEN = process.env.OPERATOR_TOKEN || 'CHANGE_ME';
+
+// ----------------- Cloudinary -----------------
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.CLOUD_KEY,
+  api_secret: process.env.CLOUD_SECRET,
+});
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'chat_uploads',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'gif', 'pdf'],
+  },
+});
+const upload = multer({ storage });
+
+// ----------------- Users -----------------
+const USERS_FILE = './users.json';
+let users = { users: [] };
+if (fs.existsSync(USERS_FILE)) {
+  users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+}
+function saveUsers() {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+// ----------------- Chats -----------------
+const chats = new Map();
+const subscribers = new Map();
+
+function getOrCreateChat(userId) {
+  if (!chats.has(userId)) {
+    chats.set(userId, { id: userId, messages: [] });
+  }
+  return chats.get(userId);
+}
+
+function publish(channel, event, data) {
+  const subs = subscribers.get(channel);
+  if (!subs) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of subs) {
+    try { res.write(payload); } catch (_) {}
+  }
+}
+
+// ----------------- App -----------------
+const app = express();
+app.use(express.json({ limit: '5mb' }));
+app.use(cookieParser());
+
+// ========== Auth ==========
+app.post('/register', async (req, res) => {
+  const { username, password } = req.body;
+  if (users.users.find(u => u.username === username)) {
+    return res.status(400).json({ ok: false, error: 'User exists' });
+  }
+  const hash = await bcrypt.hash(password, 10);
+  const user = { 
+    id: nanoid(8), 
+    username, 
+    password: hash,
+    avatar: null,
+    settings: {
+      theme: 'dark',
+      language: 'ru',
+      fontSize: 14,
+      soundNotif: true,
+      desktopNotif: false
+    }
+  };
+  users.users.push(user);
+  saveUsers();
+  res.json({ ok: true });
+});
+
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+  const user = users.users.find(u => u.username === username);
+  if (!user) return res.status(400).json({ ok: false });
+  const match = await bcrypt.compare(password, user.password);
+  if (!match) return res.status(400).json({ ok: false });
+  res.cookie('userId', user.id, { httpOnly: false, sameSite: 'lax' });
+  res.json({ ok: true });
+});
+
+app.post('/logout', (req, res) => {
+  res.clearCookie('userId');
+  res.json({ ok: true });
+});
+
+app.get('/me', (req, res) => {
+  const user = users.users.find(u => u.id === req.cookies.userId);
+  if (!user) return res.json({ ok: false });
+  res.json({ 
+    ok: true, 
+    user: { 
+      id: user.id, 
+      username: user.username,
+      avatar: user.avatar,
+      settings: user.settings
+    } 
+  });
+});
+
+// ========== Settings ==========
+app.post('/api/settings', (req, res) => {
+  const userId = req.cookies.userId;
+  if (!userId) return res.status(401).end();
+  
+  const user = users.users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ ok: false });
+  
+  const { theme, language, fontSize, soundNotif, desktopNotif } = req.body;
+  
+  if (theme) user.settings.theme = theme;
+  if (language) user.settings.language = language;
+  if (fontSize) user.settings.fontSize = fontSize;
+  if (soundNotif !== undefined) user.settings.soundNotif = soundNotif;
+  if (desktopNotif !== undefined) user.settings.desktopNotif = desktopNotif;
+  
+  saveUsers();
+  res.json({ ok: true });
+});
+
+app.post('/api/avatar', upload.single('avatar'), (req, res) => {
+  const userId = req.cookies.userId;
+  if (!userId) return res.status(401).end();
+  
+  const user = users.users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ ok: false });
+  
+  user.avatar = req.file.path;
+  saveUsers();
+  
+  res.json({ ok: true, avatar: req.file.path });
+});
+
+app.post('/api/change-password', async (req, res) => {
+  const userId = req.cookies.userId;
+  if (!userId) return res.status(401).end();
+  
+  const { currentPassword, newPassword } = req.body;
+  const user = users.users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ ok: false });
+  
+  const match = await bcrypt.compare(currentPassword, user.password);
+  if (!match) return res.status(400).json({ ok: false, error: 'Current password is incorrect' });
+  
+  user.password = await bcrypt.hash(newPassword, 10);
+  saveUsers();
+  
+  res.json({ ok: true });
+});
+
+// ========== Upload ==========
+app.post('/upload', upload.single('file'), (req, res) => {
+  res.json({ url: req.file.path });
+});
+
+// ========== Chat ==========
+app.get('/', (req, res) => {
+  res.type('html').send(userPage());
+});
+
+app.get('/events', (req, res) => {
+  const userId = req.cookies.userId;
+  if (!userId) return res.status(401).end();
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  res.flushHeaders();
+  let set = subscribers.get(userId);
+  if (!set) { set = new Set(); subscribers.set(userId, set); }
+  set.add(res);
+  req.on('close', () => set.delete(res));
+});
+
+app.post('/api/message', (req, res) => {
+  const userId = req.cookies.userId;
+  if (!userId) return res.status(401).end();
+  const { text, fileUrl } = req.body;
+  const chat = getOrCreateChat(userId);
+  const msg = { id: nanoid(10), role: 'user', text: text || null, fileUrl: fileUrl || null, at: Date.now() };
+  chat.messages.push(msg);
+  publish(userId, 'message', msg);
+  publish('operator', 'new_user_message', { userId, preview: msg.text || '[file]' });
+  res.json({ ok: true });
+});
+
+app.get('/api/history', (req, res) => {
+  const userId = req.cookies.userId;
+  const requestedUserId = req.query.userId;
+  
+  if (requestedUserId) {
+    if (!chats.has(requestedUserId)) {
+      return res.json({ ok: true, messages: [] });
+    }
+    return res.json({ ok: true, messages: chats.get(requestedUserId).messages });
+  }
+  
+  if (!userId || !chats.has(userId)) {
+    return res.json({ ok: true, messages: [] });
+  }
+  res.json({ ok: true, messages: chats.get(userId).messages });
+});
+
+// ========== Operator ==========
+app.get('/operator', (req, res) => {
+  if (req.query.token !== OPERATOR_TOKEN) return res.status(401).send('Unauthorized');
+  res.type('html').send(operatorPage());
+});
+
+app.get('/operator/events', (req, res) => {
+  if (req.query.token !== OPERATOR_TOKEN) return res.status(401).end();
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  res.flushHeaders();
+  let set = subscribers.get('operator');
+  if (!set) { set = new Set(); subscribers.set('operator', set); }
+  set.add(res);
+  req.on('close', () => set.delete(res));
+  const list = Array.from(chats.entries()).map(([id, c]) => ({ id, count: c.messages.length }));
+  res.write(`event: snapshot\ndata: ${JSON.stringify({ list })}\n\n`);
+});
+
+app.post('/operator/reply', (req, res) => {
+  if (req.query.token !== OPERATOR_TOKEN) return res.status(401).end();
+  const { userId, text } = req.body;
+  const chat = getOrCreateChat(userId);
+  const msg = { id: nanoid(10), role: 'assistant', text, at: Date.now() };
+  chat.messages.push(msg);
+  publish(userId, 'message', msg);
+  publish('operator', 'assistant_message', { userId, id: msg.id });
+  res.json({ ok: true });
+});
+
+// ========== Pages ==========
+function operatorPage() {
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .typing-dots span {
+      animation: blink 1.4s infinite;
+      animation-fill-mode: both;
+    }
+    .typing-dots span:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    .typing-dots span:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+    @keyframes blink {
+      0%, 60%, 100% {
+        opacity: 0.3;
+      }
+      30% {
+        opacity: 1;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white flex h-screen">
+  <!-- SIDEBAR -->
+  <div class="w-64 bg-gray-800 border-r border-gray-700 overflow-y-auto">
+    <div class="p-4 border-b border-gray-700">
+      <h1 class="text-xl font-bold">Оператор 💬</h1>
+    </div>
+    <div id="userList" class="p-2 space-y-1"></div>
+  </div>
+
+  <!-- MAIN CHAT -->
+  <div class="flex-1 flex flex-col">
+    <div id="chatHeader" class="p-4 border-b border-gray-700">
+      <h2 id="currentUserName" class="text-lg font-semibold">Выберите чат</h2>
+    </div>
+    <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
+    <div class="p-4 border-t border-gray-700 space-y-2">
+      <div class="flex items-center gap-2">
+        <input id="input" class="flex-1 px-3 py-2 rounded-xl bg-gray-700 text-white outline-none" placeholder="Сообщение...">
+      </div>
+      <button id="sendBtn" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-white font-semibold">Отправить</button>
+    </div>
+  </div>
+
+  <script>
+  let currentUserId = null;
+  let typingIndicator = null;
+
+  const es = new EventSource('/operator/events?token=${OPERATOR_TOKEN}');
+  es.addEventListener('snapshot', e => {
+    const d = JSON.parse(e.data);
+    renderUserList(d.list);
+  });
+  es.addEventListener('new_user_message', e => {
+    const d = JSON.parse(e.data);
+    const item = document.getElementById('user-' + d.userId);
+    if (item) {
+      item.querySelector('.last-msg').textContent = d.preview;
+      item.querySelector('.time').textContent = 'now';
+    }
+    if (currentUserId === d.userId) {
+      loadHistory(d.userId);
+    }
+  });
+  es.addEventListener('assistant_message', e => {
+    const d = JSON.parse(e.data);
+    if (currentUserId === d.userId) {
+      loadHistory(d.userId);
+    }
+  });
+
+  function renderUserList(list) {
+    const e = document.getElementById('userList');
+    e.innerHTML = '';
+    list.forEach(u => {
+      const item = document.createElement('div');
+      item.id = 'user-' + u.id;
+      item.className = 'p-3 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600';
+      item.innerHTML = '<div class="font-medium">User ' + u.id + '</div><div class="text-sm opacity-70 flex justify-between"><span class="last-msg">' + (u.count ? (u.count + ' messages') : 'No messages') + '</span><span class="time"></span></div>';
+      item.onclick = () => selectUser(u.id);
+      e.appendChild(item);
+    });
+  }
+
+  function selectUser(userId) {
+    currentUserId = userId;
+    document.getElementById('currentUserName').textContent = 'Чат с User ' + userId;
+    loadHistory(userId);
+  }
+
+  async function loadHistory(userId) {
+    const r = await fetch('/api/history?userId=' + userId);
+    const d = await r.json();
+    const msgs = d.messages;
+    const e = document.getElementById('messages');
+    e.innerHTML = '';
+    msgs.forEach(m => addMsg(m));
+  }
+
+  function addMsg(m) {
+    const e = document.createElement('div');
+    const isUser = m.role === 'user';
+    e.className = 'flex ' + (isUser ? 'justify-start' : 'justify-end');
+    
+    const bubble = document.createElement('div');
+    bubble.className = 'max-w-[80%] p-3 rounded-2xl ' + (isUser ? 'bg-gray-700' : 'bg-indigo-600');
+    
+    if (m.text) {
+      bubble.innerHTML = '<p class="text-sm">' + m.text + '</p><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
+    } else if (m.fileUrl) {
+      if (m.fileUrl.match(/\.(jpg|jpeg|png|gif)$/)) {
+        bubble.innerHTML = '<img src="' + m.fileUrl + '" class="max-w-[200px] rounded-xl"/><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
+      } else {
+        bubble.innerHTML = '<a href="' + m.fileUrl + '" target="_blank" class="text-blue-400 underline">📎 Файл</a><span class="text-xs opacity-60 mt-1 block">' + new Date(m.at).toLocaleTimeString() + '</span>';
+      }
+    }
+    
+    e.appendChild(bubble);
+    messages.appendChild(e);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  async function send() {
+    if (!currentUserId) return;
+    const text = input.value.trim();
+    if (!text) return;
+    await fetch('/operator/reply?token=${OPERATOR_TOKEN}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ userId: currentUserId, text })
+    });
+    input.value = '';
+  }
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') send();
+  });
+  document.getElementById('sendBtn').addEventListener('click', send);
+  </script>
+</body>
+</html>`;
+}
+
+app.listen(PORT, () => console.log('Server running on http://localhost:' + PORT));
+
+
+
+
+
 function userPage() {
   return `<!doctype html>
 <html>
