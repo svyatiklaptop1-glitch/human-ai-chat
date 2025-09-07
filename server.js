@@ -219,13 +219,71 @@ function userPage() {
   function showAuth(){document.getElementById('auth').classList.remove('hidden');document.getElementById('chat').classList.add('hidden');}
   async function loadHistory(){const r=await fetch('/api/history');const d=await r.json();d.messages.forEach(addMsg);}
   let typingIndicator = null;
-  function addMsg(m){const e=document.createElement('div');if(m.text){e.textContent=(m.role==='user'?'👤':'🤖')+': '+m.text;}else if(m.fileUrl){if(m.fileUrl.match(/.(jpg|jpeg|png|gif)$/)){e.innerHTML=(m.role==='user'?'👤':'🤖')+': <img src="'+m.fileUrl+'" class="max-w-[200px] rounded"/>';}else{e.innerHTML=(m.role==='user'?'👤':'🤖')+': <a href="'+m.fileUrl+'" target="_blank" class="underline">Файл</a>';}}messages.appendChild(e);messages.scrollTop=messages.scrollHeight;}
-  function showTyping(){if(typingIndicator)return;typingIndicator=document.createElement('div');typingIndicator.className='flex items-center space-x-2 text-gray-400';typingIndicator.innerHTML='🤖 <span class="typing-dots">думает<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>';const style=document.createElement('style');style.textContent='.typing-dots .dot{animation:blink 1.4s infinite both;}.typing-dots .dot:nth-child(2){animation-delay:.2s;}.typing-dots .dot:nth-child(3){animation-delay:.4s;}@keyframes blink{0%,80%,100%{opacity:0;}40%{opacity:1;}}';document.head.appendChild(style);messages.appendChild(typingIndicator);messages.scrollTop=messages.scrollHeight;}
-  function hideTyping(){if(typingIndicator){typingIndicator.remove();typingIndicator=null;}}
+  function addMsg(m) {
+    const e = document.createElement('div');
+    e.className = 'p-3 rounded-2xl max-w-[80%] ' + (m.role === 'user' ? 'message-user ml-auto text-white' : 'message-bot mr-auto text-white');
+    
+    if (m.text) {
+      const avatar = document.createElement('div');
+      avatar.className = 'flex items-start space-x-3';
+      avatar.innerHTML = '<div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div class="flex-1"><p class="text-sm">' + m.text + '</p><span class="text-xs opacity-60">' + new Date(m.at).toLocaleTimeString() + '</span></div>';
+      e.appendChild(avatar);
+    } else if (m.fileUrl) {
+      if (m.fileUrl.match(/\\.(jpg|jpeg|png|gif)$/)) {
+        e.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div><img src="' + m.fileUrl + '" class="max-w-[200px] rounded-xl shadow-lg"/><span class="text-xs opacity-60 block mt-1">' + new Date(m.at).toLocaleTimeString() + '</span></div></div>';
+      } else {
+        e.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full ' + (m.role === 'user' ? 'bg-white/20' : 'bg-gray-600') + ' flex items-center justify-center flex-shrink-0"><span>' + (m.role === 'user' ? '👤' : '🤖') + '</span></div><div><a href="' + m.fileUrl + '" target="_blank" class="text-blue-400 underline hover:text-blue-300 transition">📎 Файл</a><span class="text-xs opacity-60 block mt-1">' + new Date(m.at).toLocaleTimeString() + '</span></div></div>';
+      }
+    }
+    
+    messages.appendChild(e);
+    messages.scrollTop = messages.scrollHeight;
+  }
+  
+  function showTyping() {
+    if (typingIndicator) return;
+    typingIndicator = document.createElement('div');
+    typingIndicator.className = 'message-bot mr-auto p-3 rounded-2xl max-w-[80%]';
+    typingIndicator.innerHTML = '<div class="flex items-start space-x-3"><div class="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0"><span>🤖</span></div><div class="flex items-center"><span class="text-gray-300 mr-2">Печатает</span><div class="typing-dots"><span class="dot">●</span><span class="dot">●</span><span class="dot">●</span></div></div></div>';
+    messages.appendChild(typingIndicator);
+    messages.scrollTop = messages.scrollHeight;
+  }
+  
+  function hideTyping() {
+    if (typingIndicator) {
+      typingIndicator.remove();
+      typingIndicator = null;
+    }
+  }
+  
+  function toggleSettings() {
+    const panel = document.getElementById('settingsPanel');
+    panel.classList.toggle('open');
+  }
+  
+  function showProfile() {
+    alert('Профиль пользователя (в разработке)');
+  }
+  
+  function clearChat() {
+    if (confirm('Очистить историю чата?')) {
+      document.getElementById('messages').innerHTML = '';
+    }
+  }
   function connectEvents(){const es=new EventSource('/events');es.addEventListener('message',ev=>{const msg=JSON.parse(ev.data);if(msg.role==='assistant')hideTyping();addMsg(msg);});}
   const sendBtn=document.getElementById('sendBtn');sendBtn.onclick=async()=>{let fileInput=document.getElementById('file');if(fileInput.files.length>0){const fd=new FormData();fd.append('file',fileInput.files[0]);const r=await fetch('/upload',{method:'POST',body:fd});const d=await r.json();await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileUrl:d.url})});fileInput.value='';showTyping();}else{const text=input.value.trim();if(!text)return;input.value='';await fetch('/api/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});showTyping();}};
   input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();sendBtn.click();}});
   checkAuth();
+  
+  // Закрытие панели настроек при клике вне её
+  document.addEventListener('click', function(e) {
+    const panel = document.getElementById('settingsPanel');
+    const settingsBtn = e.target.closest('button[onclick="toggleSettings()"]');
+    if (!panel.contains(e.target) && !settingsBtn && panel.classList.contains('open')) {
+      panel.classList.remove('open');
+    }
+  });
+  
   </script></body></html>`;
 }
 
